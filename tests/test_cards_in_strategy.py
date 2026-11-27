@@ -8,6 +8,7 @@ import pytest
 from fakes import Bot
 
 from finbot import db
+from finbot.bot import health as health_bot
 from finbot.bot import strategy
 from finbot.bot.health import format_indicators
 from finbot.config import HealthSettings
@@ -173,7 +174,31 @@ def test_saude_conta_as_compras_de_antes_do_bot(conn):
     assert i.leftover_by_month()[0] == ("2026-12", i.leftover_cents - 209_284)
     assert i.total_with_cards_cents == 128_640 + 237_900 + 959_454
     text = "\n".join(format_indicators(i, HealthSettings()))
-    assert "Faturas de compras feitas antes do bot (não estão nos gastos" in text
-    assert "dez/2026 R$ 2.092,84" in text
+    assert "💳 Faturas de compras de antes do bot" in text
+    # sem renda registrada: só a lista das faturas, sem sobra
+    assert "dez/2026: R$ 2.092,84" in text
     # dívidas 1.286,40 + 2.379,00 = 3.665,40; + cartões 9.594,54 = 13.259,94
-    assert "+ cartões R$ 9.594,54 = R$ 13.259,94" in text
+    assert "Dívidas: R$ 3.665,40\nCartões: R$ 9.594,54\nTotal: R$ 13.259,94" in text
+
+
+def test_saude_com_salario_mostra_a_sobra_de_cada_mes(conn):
+    with_salary(conn)
+    i = health.indicators(conn, TODAY, SP, HealthSettings())
+    text = "\n".join(format_indicators(i, HealthSettings(), health_bot.cards_summary(conn, TODAY)))
+    # 793,21 ÷ 4.068,49 = 19,5% -> saudável
+    assert "🟢 Saudável\nAs parcelas das dívidas levam 19,5% da sua renda" in text
+    # 4.068,49 − 793,21 − 0 = 3.275,28
+    assert "Entra (salário líquido): R$ 4.068,49" in text
+    assert "Sobra antes das faturas antigas: R$ 3.275,28\n" in text
+    # dez: 3.275,28 − 2.092,84 = 1.182,44 ✅ ; jan: 3.275,28 − 1.814,86 = 1.460,42 ✅
+    assert "dez/2026: fatura R$ 2.092,84 → sobra R$ 1.182,44 ✅" in text
+    assert "jan/2027: fatura R$ 1.814,86 → sobra R$ 1.460,42 ✅" in text
+    # 9.594,54 ÷ 9.600,00 = 99,9%
+    assert "Cartões: R$ 9.594,54 (99,9% do limite de R$ 9.600,00)" in text
+    assert "/estrategia sobra" in text
+
+
+def test_icone_da_sobra():
+    assert health_bot._leftover_icon(-1, 400_000) == "🚨"
+    assert health_bot._leftover_icon(885, 406_849) == "⚠️"  # R$ 8,85: menos de 10%
+    assert health_bot._leftover_icon(40_685, 406_849) == "✅"  # 10% em diante

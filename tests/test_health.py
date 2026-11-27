@@ -88,13 +88,17 @@ def test_indicadores_feitos_a_mao(scenario):
 
 def test_texto_dos_indicadores(scenario):
     text = "\n".join(format_indicators(health.indicators(scenario, TODAY, SP, CFG), CFG))
-    assert "Base: média de ago/2026, set/2026, out/2026 (3 mês(es) completo(s))" in text
-    assert "Gastos fixos médios (moradia, saúde, educação): R$ 1.800,00" in text
-    assert (
-        "Comprometimento da renda com dívidas: 24,9% → 🟢 saudável "
-        "(saudável até 30%, atenção até 40%)" in text
+    # Ordem: veredito, conta do mês, quanto deve, base dos números (no fim)
+    assert text.startswith(
+        "🩺 Saúde financeira\n\n🟢 Saudável\nAs parcelas das dívidas levam 24,9%"
     )
-    assert "Sobra depois dos fixos e das parcelas: R$ 1.954,40" in text
+    assert "(saudável: até 30%; atenção: até 40%)" in text
+    assert "Entra: R$ 5.000,00 (média; cadastre o salário: /salario)" in text
+    assert "Gastos fixos: −R$ 1.800,00\n" in text
+    # 5.000 − 1.800 − 1.245,60 = 1.954,40, mais de 10% da renda -> ✅
+    assert "Sobra: R$ 1.954,40 ✅" in text
+    assert "🧾 Quanto você deve\nDívidas: R$ 13.500,00" in text
+    assert text.endswith("ℹ️ Base: média de ago/2026, set/2026, out/2026.")
 
 
 def test_sugestoes_feitas_a_mao(scenario):
@@ -147,7 +151,9 @@ def test_sem_renda(conn):
     add(conn, "expense", 10_000, "moradia", 10)
     i = health.indicators(conn, TODAY, SP, CFG)
     assert (i.commitment_bp, i.band) == (None, None)
-    assert "sem entradas registradas" in "\n".join(format_indicators(i, CFG))
+    text = "\n".join(format_indicators(i, CFG))
+    assert "Ainda não sei sua renda" in text
+    assert "Sobra" not in text  # sem renda, não alarma com sobra negativa falsa
 
 
 @pytest.mark.parametrize(

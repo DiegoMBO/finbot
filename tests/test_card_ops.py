@@ -200,13 +200,12 @@ def test_desfazer_depois_de_estorno_explica(bot):
 
 def test_dividas_e_saude_mostram_os_cartoes(bot):
     from finbot.bot import debts as debt_bot
-    from finbot.bot.health import format_cards_line
+    from finbot.bot.health import cards_summary
 
     bot.send(debt_bot.list_debts)
     assert "💳 Cartões (1): usado R$ 9.594,54 de R$ 12.000,00" in bot.last
-    line = format_cards_line(bot.conn, datetime.now(SP).date())
-    assert line.startswith("Cartões: usado R$ 9.594,54 de R$ 12.000,00 (80,0%)")
-    assert "faturas atuais a pagar R$ 1.840,00" in line
+    s = cards_summary(bot.conn, datetime.now(SP).date())
+    assert (s.used_cents, s.limit_cents, s.overdue_cents) == (959_454, 1_200_000, 0)
 
 
 # --- tarefas diárias -------------------------------------------------------------

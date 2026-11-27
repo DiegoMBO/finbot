@@ -93,5 +93,5 @@ def test_saude_sem_renda_nao_alarma(bot):
         bot.conn, date(2026, 11, 27), bot.context.bot_data["settings"].timezone, HealthSettings()
     )
     text = "\n".join(format_indicators(i, HealthSettings()))
-    assert "registre suas entradas para eu calcular" in text
-    assert "🚨 Os fixos e as parcelas passam" not in text
+    assert "Ainda não sei sua renda" in text
+    assert "🚨" not in text and "Sobra" not in text

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from telegram import Update
@@ -34,73 +35,124 @@ def _ref(reference_month: str) -> str:
     return _short((year, month))
 
 
-def format_indicators(i: Indicators, cfg: HealthSettings) -> list[str]:
-    if i.partial:
-        base = (
-            f"Base: {month_label(*i.months[0])} até hoje (ainda não há mês completo com registros)"
+@dataclass(frozen=True)
+class CardsSummary:
+    used_cents: int
+    limit_cents: int
+    overdue_cents: int
+
+
+def cards_summary(conn, today: date) -> CardsSummary | None:
+    cards = cc.list_cards(conn)
+    if not cards:
+        return None
+    return CardsSummary(
+        used_cents=sum(c.used_cents for c in cards),
+        limit_cents=sum(c.limit_cents for c in cards),
+        overdue_cents=sum(
+            i.remaining_cents for c in cards for i in cc.overdue_invoices(conn, c, today)
+        ),
+    )
+
+
+def _leftover_icon(value: int, income: int) -> str:
+    """🚨 negativo · ⚠️ menos de 10% da renda (qualquer imprevisto estoura) · ✅."""
+    if value < 0:
+        return "🚨"
+    return "⚠️" if value * 10 < income else "✅"
+
+
+def format_indicators(
+    i: Indicators, cfg: HealthSettings, cards: CardsSummary | None = None
+) -> list[str]:
+    """Do mais importante para o detalhe: veredito → conta do mês → meses com
+    as faturas antigas → quanto deve → de onde vêm os números."""
+    month_now = month_label(*i.months[-1]) if i.partial else None
+    lines = ["🩺 Saúde financeira", ""]
+
+    # 1. Veredito em uma frase
+    if i.commitment_bp is None:
+        lines.append("Ainda não sei sua renda: cadastre o salário (/salario) ou registre")
+        lines.append("as entradas (ex.: recebi 3000 salário).")
+    else:
+        lines.append(f"{BAND_ICONS[i.band]} {i.band.capitalize()}")
+        lines.append(
+            f"As parcelas das dívidas levam {format_bp(i.commitment_bp)} da sua renda "
+            f"(saudável: até {cfg.ok_max_pct}%; atenção: até {cfg.warn_max_pct}%)."
         )
+
+    # 2. A conta de um mês típico
+    if i.income_cents:
+        lines += ["", "💰 Seu mês, em média"]
+        if i.salary_cents is not None:
+            others = i.income_cents - i.salary_cents
+            if others:
+                lines.append(f"Entra: {format_brl(i.income_cents)}")
+                lines.append(
+                    f"   salário líquido {format_brl(i.salary_cents)} "
+                    f"+ outras entradas {format_brl(others)}"
+                )
+            else:
+                lines.append(f"Entra (salário líquido): {format_brl(i.income_cents)}")
+        else:
+            lines.append(
+                f"Entra: {format_brl(i.income_cents)} (média; cadastre o salário: /salario)"
+            )
+        lines.append(f"Parcelas das dívidas: −{format_brl(i.installments_cents)}")
+        if i.installment_debts:
+            lines.append(f"   {', '.join(i.installment_debts)}")
+        fixed_note = " (nenhum registrado ainda)" if i.fixed_cents == 0 else ""
+        lines.append(f"Gastos fixos: −{format_brl(i.fixed_cents)}{fixed_note}")
+        label = "Sobra antes das faturas antigas" if i.card_pre_bot_months else "Sobra"
+        icon = (
+            "" if i.card_pre_bot_months else " " + _leftover_icon(i.leftover_cents, i.income_cents)
+        )
+        lines.append(f"{label}: {format_brl(i.leftover_cents)}{icon}")
+
+    # 3. Faturas antigas: tiram da sobra, mês a mês, e vão diminuindo
+    if i.card_pre_bot_months:
+        lines += ["", "💳 Faturas de compras de antes do bot"]
+        if i.income_cents:
+            lines.append("Saem da sobra acima. Como elas diminuem, cada mês fica diferente:")
+            for (m, bill), (_, left) in zip(
+                i.card_pre_bot_months, i.leftover_by_month(), strict=True
+            ):
+                lines.append(
+                    f"{_ref(m)}: fatura {format_brl(bill)} → sobra {format_brl(left)} "
+                    f"{_leftover_icon(left, i.income_cents)}"
+                )
+        else:
+            for m, bill in i.card_pre_bot_months:
+                lines.append(f"{_ref(m)}: {format_brl(bill)}")
+
+    # 4. Quanto deve no total
+    lines += ["", "🧾 Quanto você deve"]
+    lines.append(f"Dívidas: {format_brl(i.total_debt_cents)}")
+    if cards is not None or i.card_used_cents:
+        text = f"Cartões: {format_brl(i.card_used_cents)}"
+        if cards is not None and cards.limit_cents:
+            text += (
+                f" ({format_bp(cards.used_cents * 10_000 // cards.limit_cents)} do limite "
+                f"de {format_brl(cards.limit_cents)})"
+            )
+        lines.append(text)
+        if cards is not None and cards.overdue_cents:
+            lines.append(f"🚨 Fatura vencida sem pagar: {format_brl(cards.overdue_cents)}")
+        lines.append(f"Total: {format_brl(i.total_with_cards_cents)}")
+
+    # 5. De onde vêm os números (no fim, pequeno)
+    lines.append("")
+    if i.partial:
+        base = f"ℹ️ Base: {month_now} até hoje (ainda não há mês completo com registros)."
     else:
         months = ", ".join(_short(m) for m in i.months)
-        base = f"Base: média de {months} ({len(i.months)} mês(es) completo(s))"
-    lines = ["🩺 Saúde financeira", base, ""]
-    if i.salary_cents is not None:
-        others = i.income_cents - i.salary_cents
-        text = (
-            f"Renda base: {format_brl(i.income_cents)} "
-            f"(salário líquido {format_brl(i.salary_cents)}"
+        base = f"ℹ️ Base: média de {months}."
+    if i.card_pre_bot_months and i.income_cents:
+        base += (
+            " As sobras são de um mês típico, sem 13º e férias; "
+            "o caixa exato de cada mês está em /estrategia sobra."
         )
-        text += f" + outras entradas {format_brl(others)})" if others else ")"
-        lines.append(text)
-    else:
-        lines.append(f"Renda média: {format_brl(i.income_cents)} (cadastre o salário: /salario)")
-    lines.append(
-        f"Gastos fixos médios ({', '.join(cfg.fixed_categories)}): {format_brl(i.fixed_cents)}"
-    )
-    debts_text = ", ".join(i.installment_debts) if i.installment_debts else "nenhuma"
-    lines.append(f"Parcelas de dívidas: {format_brl(i.installments_cents)} ({debts_text})")
-    if i.commitment_bp is None:
-        lines.append(
-            "Comprometimento da renda: sem entradas registradas no período. "
-            "Registre com, por exemplo: recebi 3000 salário"
-        )
-    else:
-        lines.append(
-            f"Comprometimento da renda com dívidas: {format_bp(i.commitment_bp)} → "
-            f"{BAND_ICONS[i.band]} {i.band} "
-            f"(saudável até {cfg.ok_max_pct}%, atenção até {cfg.warn_max_pct}%)"
-        )
-    if i.income_cents == 0:
-        # Sem renda registrada, a "sobra" seria negativa só por falta de dado: sem alarme.
-        lines.append(
-            "Sobra depois dos fixos e das parcelas: registre suas entradas para eu calcular"
-        )
-    else:
-        lines.append(f"Sobra depois dos fixos e das parcelas: {format_brl(i.leftover_cents)}")
-        if i.leftover_cents < 0:
-            lines.append("🚨 Os fixos e as parcelas passam da renda média.")
-    if i.card_pre_bot_months:
-        lines.append(
-            "Faturas de compras feitas antes do bot (não estão nos gastos; vão diminuindo):"
-        )
-        lines.append(
-            "   " + " · ".join(f"{_ref(m)} {format_brl(v)}" for m, v in i.card_pre_bot_months)
-        )
-        if i.income_cents:
-            parts = [
-                f"{_ref(m)} {format_brl(v)}" + (" 🚨" if v < 0 else "")
-                for m, v in i.leftover_by_month()
-            ]
-            lines.append("Sobra contando essas faturas: " + " · ".join(parts))
-            lines.append(
-                "(Mês típico, sem 13º e férias; o caixa exato de cada mês está no /estrategia.)"
-            )
-    if i.card_used_cents:
-        lines.append(
-            f"Total em dívidas: {format_brl(i.total_debt_cents)} + cartões "
-            f"{format_brl(i.card_used_cents)} = {format_brl(i.total_with_cards_cents)}"
-        )
-    else:
-        lines.append(f"Total em dívidas: {format_brl(i.total_debt_cents)}")
+    lines.append(base)
     return lines
 
 
@@ -166,29 +218,8 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     conn = context.bot_data["db"]
     today = datetime.now(settings.timezone).date()
     cfg = settings.health
-    lines = format_indicators(health.indicators(conn, today, settings.timezone, cfg), cfg)
-    card_line = format_cards_line(conn, today)
-    if card_line:
-        lines.append(card_line)
+    indicators = health.indicators(conn, today, settings.timezone, cfg)
+    lines = format_indicators(indicators, cfg, cards_summary(conn, today))
     lines.append("")
     lines += format_suggestions(health.suggestions(conn, today, settings.timezone, cfg), cfg, today)
     await update.effective_message.reply_text("\n".join(lines))
-
-
-def format_cards_line(conn, today: date) -> str | None:
-    """Cartões: uso do limite e faturas a pagar. As COMPRAS já estão nos gastos;
-    aqui é só para você ver quanto do limite está comprometido."""
-    cards = cc.list_cards(conn)
-    if not cards:
-        return None
-    used = sum(c.used_cents for c in cards)
-    limit = sum(c.limit_cents for c in cards)
-    current = sum(inv.remaining_cents for c in cards if (inv := cc.current_invoice(conn, c, today)))
-    overdue = sum(i.remaining_cents for c in cards for i in cc.overdue_invoices(conn, c, today))
-    text = (
-        f"Cartões: usado {format_brl(used)} de {format_brl(limit)} "
-        f"({format_bp(used * 10_000 // limit)}) · faturas atuais a pagar {format_brl(current)}"
-    )
-    if overdue:
-        text += f" · 🚨 vencido {format_brl(overdue)}"
-    return text
