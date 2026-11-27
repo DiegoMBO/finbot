@@ -25,8 +25,8 @@ from telegram.ext import (
 )
 
 from finbot.bot import debt_form as form
+from finbot.bot import flows
 from finbot.bot.debts import (
-    DRAFT,
     EDITING,
     card_hint,
     format_rate,
@@ -163,7 +163,7 @@ async def _show_menu(message: Message, context) -> int:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/editardivida [nome]."""
     message = update.effective_message
-    if any(context.user_data.get(k) for k in (DRAFT, "card_draft", "card_edit")):
+    if flows.busy(context.user_data, EDITING):
         await message.reply_text(
             "Há um cadastro de dívida em andamento. Termine ou mande /cancelar antes."
         )

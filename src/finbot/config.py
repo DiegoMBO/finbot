@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -41,6 +42,9 @@ class Settings:
     health: HealthSettings = HealthSettings()
     reminder_hour: int = 9  # hora do dia (no seu fuso) em que os lembretes saem
     reminder_days_before: int = 3  # quantos dias antes do vencimento avisar
+    # Feriados estaduais/municipais (dia, mês), além dos nacionais: entram no DSR
+    # das horas extras e no cálculo do 5º dia útil.
+    extra_holidays: tuple[tuple[int, int], ...] = ()
 
 
 def _int(env: dict[str, str], name: str, default: int, low: int, high: int) -> int:
@@ -54,6 +58,20 @@ def _int(env: dict[str, str], name: str, default: int, low: int, high: int) -> i
     if not low <= value <= high:
         raise ConfigError(f"{name} deve estar entre {low} e {high}, recebi {value}.")
     return value
+
+
+def _holidays(env: dict[str, str]) -> tuple[tuple[int, int], ...]:
+    """EXTRA_HOLIDAYS=25/01,09/07 -> ((25, 1), (9, 7))."""
+    raw = env.get("EXTRA_HOLIDAYS", "").strip()
+    found = []
+    for part in (p.strip() for p in raw.split(",") if p.strip()):
+        try:
+            day, month = (int(x) for x in part.split("/"))
+            date(2024, month, day)  # 2024: ano bissexto, aceita 29/02
+        except ValueError as exc:
+            raise ConfigError(f"EXTRA_HOLIDAYS: data inválida {part!r} (use DD/MM).") from exc
+        found.append((day, month))
+    return tuple(found)
 
 
 def _health(env: dict[str, str]) -> HealthSettings:
@@ -122,4 +140,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         health=_health(env),
         reminder_hour=_int(env, "REMINDER_HOUR", 9, 0, 23),
         reminder_days_before=_int(env, "REMINDER_DAYS_BEFORE", 3, 0, 15),
+        extra_holidays=_holidays(env),
     )

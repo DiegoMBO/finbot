@@ -28,7 +28,7 @@ def test_migracao_003_cria_as_tabelas_de_cartao():
     conn = db.connect(db.MEMORY)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert CARD_TABLES <= tables
-    assert db.schema_version(conn) == 3
+    assert db.schema_version(conn) == len(db.load_migrations())
     conn.close()
 
 

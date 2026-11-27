@@ -17,6 +17,7 @@ from telegram.ext import (
     filters,
 )
 
+from finbot.bot import flows
 from finbot.bot.card_views import due_text, invoice_label, month_short
 from finbot.bot.texts import format_alert
 from finbot.config import Settings
@@ -451,8 +452,7 @@ async def _advance_installment(message: Message, context, value) -> int:
 
 
 def _busy(context) -> bool:
-    keys = ("debt_draft", "debt_edit", "card_draft", "card_edit", "refund_draft")
-    return any(context.user_data.get(k) for k in keys)
+    return flows.busy(context.user_data)
 
 
 async def installment_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

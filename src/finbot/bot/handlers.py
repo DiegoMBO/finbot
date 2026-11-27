@@ -15,6 +15,8 @@ from telegram import Message, Update
 from telegram.ext import ContextTypes
 
 from finbot.bot import card_ops, payments
+from finbot.bot import salary as salary_bot
+from finbot.services import salary as salary_service
 from finbot.bot.texts import format_alert, format_budget_line
 from finbot.config import Settings
 from finbot.money import format_brl
@@ -94,6 +96,7 @@ KNOWN_COMMANDS = (
     "novadivida", "editardivida", "dividas", "divida", "removerdivida", "pagar", "saldo",
     "simular", "estrategia", "semcartao", "saude", "grafico", "lembretes", "cancelar",
     "novocartao", "editarcartao", "cartoes", "cartao", "fatura", "parcelado", "estorno",
+    "salario", "editarsalario", "horasextras", "decimo", "ferias",
 )  # fmt: skip
 
 
@@ -130,6 +133,8 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     3. senão, gasto/entrada comum ("gastei 35 no mercado")."""
     message = update.effective_message
     if message is None or not message.text:
+        return
+    if await salary_bot.try_overtime(message, context, message.text):
         return
     if await card_ops.try_card(message, context, message.text):
         return
@@ -358,11 +363,35 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     card_action = cc.last_user_action(conn)
     # Gastos de compras no cartão são desfeitos pela compra, não um a um.
     last = transactions.last_excluding(conn, cc.card_transaction_ids(conn))
+    # Hora extra registrada depois do último gasto/ação de cartão: apaga ela.
+    overtime = salary_service.last_overtime(conn)
+    if (
+        overtime
+        and (last is None or overtime[1] >= last.created_at)
+        and (card_action is None or overtime[1] >= card_action.occurred_at)
+    ):
+        entry = overtime[0]
+        salary_service.delete_overtime(conn, entry.id)
+        await message.reply_text(
+            f"🗑️ Apagado: {entry.minutes // 60}h{entry.minutes % 60:02d} extras de "
+            f"{entry.worked_on:%d/%m/%Y}."
+        )
+        return
     if card_action and _card_action_is_newer(conn, card_action, last):
         await card_ops.undo_card_action(message, conn, card_action)
         return
     if last is None:
         await message.reply_text("Não há nada para desfazer.")
+        return
+    posted = salary_service.posted_by_transaction(conn, last.id)
+    if posted is not None:  # salário/13º/férias lançado pelo bot (+ consignado junto)
+        salary_service.undo_post(conn, posted, _settings(context).timezone)
+        await message.reply_text(
+            f"🗑️ Desfeito: {salary_service.KIND_LABEL[posted.kind]} ({posted.reference}), "
+            f"{format_brl(posted.net_cents)}"
+            + (" e o consignado junto." if posted.links else ".")
+            + "\nO bot não lança de novo sozinho."
+        )
         return
     try:
         undone = debts.undo_payment(conn, last.id, _settings(context).timezone)

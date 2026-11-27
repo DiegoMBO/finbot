@@ -22,6 +22,7 @@ from finbot.bot import (
     health,
     payments,
     reminders,
+    salary,
     strategy,
 )
 from finbot.bot.security import build_guard
@@ -66,6 +67,11 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(card_setup.build_edit_card_conversation())  # /editarcartao
     app.add_handler(card_ops.build_installment_conversation())  # /parcelado
     app.add_handler(card_ops.build_refund_conversation())  # /estorno
+    for conversation in salary.build_conversations():  # /salario, /editarsalario
+        app.add_handler(conversation)
+    app.add_handler(CommandHandler("horasextras", salary.overtime_command))
+    app.add_handler(CommandHandler("decimo", salary.thirteenth_command))
+    app.add_handler(CommandHandler("ferias", salary.vacation_command))
     app.add_handler(CommandHandler(["start", "ajuda", "help"], handlers.start))
     app.add_handler(CommandHandler("hoje", handlers.today))
     app.add_handler(CommandHandler("mes", handlers.month))

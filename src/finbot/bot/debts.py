@@ -22,6 +22,7 @@ from telegram.ext import (
 )
 
 from finbot.bot import debt_form as form
+from finbot.bot import flows
 from finbot.config import Settings
 from finbot.money import format_brl, format_percent
 from finbot.parsing.debt import FieldError, is_skip
@@ -295,7 +296,7 @@ async def _advance(
 
 async def new_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/novadivida: começa (ou recomeça) o cadastro."""
-    if any(context.user_data.get(k) for k in (EDITING, "card_draft", "card_edit")):
+    if flows.busy(context.user_data, DRAFT):
         await update.effective_message.reply_text(
             "Há outra edição ou cadastro em andamento. Termine ou mande /cancelar antes."
         )

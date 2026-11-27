@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from finbot.bot import card_form as form
+from finbot.bot import flows
 from finbot.bot.card_views import format_card_details, usage_text
 from finbot.config import Settings
 from finbot.money import format_brl, format_percent
@@ -31,7 +32,6 @@ DRAFT = "card_draft"
 EDITING = "card_edit"
 CB = "novocartao:"
 EDIT_CB = "editarcartao:"
-BUSY_KEYS = ("debt_draft", "debt_edit", DRAFT, EDITING)
 
 
 def _db(context: ContextTypes.DEFAULT_TYPE) -> sqlite3.Connection:
@@ -45,7 +45,7 @@ def _today(context: ContextTypes.DEFAULT_TYPE) -> date:
 
 def _busy(context, own_key: str) -> bool:
     """Já há outro cadastro/edição em andamento?"""
-    return any(context.user_data.get(k) for k in BUSY_KEYS if k != own_key)
+    return flows.busy(context.user_data, own_key)
 
 
 SKIP = InlineKeyboardMarkup([[InlineKeyboardButton("Pular ⏭", callback_data=f"{CB}skip")]])
