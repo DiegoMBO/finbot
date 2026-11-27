@@ -11,7 +11,7 @@ from telegram.ext import ConversationHandler
 from finbot import db
 from finbot.bot import debt_edit as e
 from finbot.bot.debts import DRAFT
-from finbot.services import cards, debts
+from finbot.services import debts
 
 NOW = datetime(2026, 11, 26, tzinfo=UTC)
 LOAN = debts.NewDebt(
@@ -73,13 +73,6 @@ def test_virar_cartao_apaga_parcelas_restantes(conn):
     d = debts.create(conn, LOAN, NOW)
     d = debts.update_field(conn, d, "kind", "cartao")
     assert (d.kind, d.remaining_installments) == ("cartao", None)
-
-
-def test_cartao_com_faturas_nao_troca_de_tipo(conn):
-    d = debts.create(conn, debts.NewDebt("Cartão", "cartao", 100, due_day=10), NOW)
-    cards.register(conn, d.id, 50_000, None, date(2026, 12, 10), NOW)
-    with pytest.raises(ValueError, match="faturas"):
-        debts.update_field(conn, d, "kind", "emprestimo")
 
 
 def test_saldo_nao_e_editavel(conn):

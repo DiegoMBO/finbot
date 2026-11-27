@@ -116,14 +116,20 @@ def test_cadastro_completo_pulando_opcionais(chat):
     )
 
 
-def test_cartao_pula_parcelas_restantes(chat):
+def test_cheque_especial_pula_parcelas_restantes(chat):
     chat.command(h.new_debt)
-    chat.say("Cartão Inter")
-    chat.tap("divida:kind:cartao")
+    chat.say("Cheque Inter")
+    chat.tap("divida:kind:cheque_especial")
     chat.say("Inter")
     chat.say("1.500")
-    chat.say("15")  # taxa
+    chat.say("8")  # taxa
     assert "parcela ou do pagamento mensal" in chat.last  # não perguntou "quantas parcelas"
+
+
+def test_cadastro_de_divida_nao_oferece_cartao(chat):
+    buttons = [b.callback_data for row in h.kind_keyboard().inline_keyboard for b in row]
+    assert "divida:kind:cartao" not in buttons
+    assert len(buttons) == 5
 
 
 def test_nome_repetido_pede_outro(chat):

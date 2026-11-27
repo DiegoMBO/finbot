@@ -1,10 +1,10 @@
 """Argumentos do /fatura.
 
 /fatura nubank                       -> mostra a fatura atual
-/fatura nubank 1.850,40              -> registra a fatura (vencimento = dia cadastrado)
-/fatura nubank 1.850,40 277,56       -> com o pagamento mínimo
-/fatura nubank 1.850,40 vence 10/12  -> informando o vencimento
-/fatura cartão nubank 1850,40 mínimo 277,56 10/12/2026
+/fatura nubank 1.850,40              -> informa o valor do banco na fatura atual
+/fatura nubank 1.850,40 10/01        -> informa o valor da fatura que vence em 10/01
+/fatura nubank 10/01                 -> mostra a fatura que vence em 10/01
+(Um segundo valor, o "mínimo", é aceito mas não é usado pelos cartões.)
 """
 
 from __future__ import annotations

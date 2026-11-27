@@ -4,10 +4,11 @@ Bot de Telegram pessoal para controle de finanças. Você manda mensagens como
 **"gastei 35 no mercado"** e ele registra, categoriza, resume o mês, avisa quando
 um orçamento está perto de estourar e exporta tudo para planilha.
 
-Também acompanha suas **dívidas**: saldo, histórico, data estimada de quitação,
-juros que ainda vão ser pagos, faturas de cartão com alerta de rotativo,
-simulações, estratégias de quitação, indicadores de saúde financeira e
-lembretes de vencimento.
+Também acompanha seus **cartões de crédito** (limite, faturas montadas pelas
+compras que você registra, parcelamentos, estornos, rotativo e o melhor cartão
+para usar hoje) e suas **dívidas**: saldo, histórico, data estimada de quitação,
+juros que ainda vão ser pagos, simulações, estratégias de quitação, indicadores
+de saúde financeira e lembretes de vencimento.
 
 Roda no seu computador, guarda os dados num arquivo SQLite local e só responde
 ao seu chat.
@@ -20,6 +21,7 @@ ao seu chat.
 - [Executar](#executar)
 - [Hospedar num servidor](#hospedar-num-servidor-24-horas-grátis)
 - [Como usar](#como-usar)
+- [Cartões de crédito](#cartões-de-crédito)
 - [Dívidas](#dívidas)
 - [Seus dados](#seus-dados)
 - [Problemas comuns](#problemas-comuns)
@@ -37,13 +39,20 @@ ao seu chat.
 | `/orcamento alimentação 800` | Define um limite mensal; avisa ao passar de 80% e de 100% |
 | `/exportar` | Envia um CSV com tudo, pronto para o Excel / Google Planilhas |
 | `/desfazer` | Apaga o último registro |
-| `/ajuda` | Mostra as instruções |
+| `/ajuda` ou `/help` | Mostra as instruções |
+| `/novocartao` | Cadastra um cartão: fechamento, vencimento, limite, usado, faturas |
+| `gastei 80 no mercado no nubank` | Compra no cartão: entra na fatura certa e ocupa o limite |
+| `comprei tv 3000 em 10x no nubank` · `/parcelado` | Compra parcelada, uma parcela por fatura |
+| `paguei 1500 da fatura do nubank` | Paga a fatura, libera o limite; alerta de rotativo se faltar |
+| `/cartoes` · `/cartao nome` | Todos os cartões e o melhor para usar hoje · detalhes de um |
+| `/fatura nome [valor]` | Mostra a fatura, ou informa o valor real do banco |
+| `/estorno` | Estorno total ou parcial de uma compra |
 | `/novadivida` | Cadastra uma dívida, uma pergunta por vez |
 | `paguei 450 do empréstimo nubank` | Abate o saldo da dívida e registra o gasto em *dívidas* |
 | `/dividas` · `/divida nome` | Resumo de todas · detalhes e histórico de uma |
 | `/editardivida nome` | Muda taxa, parcela, vencimento e outros dados |
 | `/saldo nome valor` | Corrige o saldo pelo valor do app do banco |
-| `/fatura cartão total [mínimo]` | Registra a fatura do mês; alerta de rotativo |
+| `/removerdivida nome` | Apaga uma dívida (pede confirmação) |
 | `/simular nome extra` | Quanto tempo e juros um extra mensal economiza |
 | `/estrategia [extra]` | Avalanche × bola de neve |
 | `/saude` | Comprometimento da renda, sobra e sugestões com seus números |
@@ -234,6 +243,94 @@ O arquivo abre direto no Excel em português: colunas separadas por `;`,
 valores com vírgula (`35,00`), datas `dd/mm/aaaa` no seu fuso e acentos
 preservados. Colunas: `data;hora;tipo;valor;categoria;descricao`.
 
+## Cartões de crédito
+
+Cartão tem cadastro próprio, separado das dívidas: ele só vira dívida de verdade
+quando a fatura não é paga inteira (rotativo) ou quando você parcela a fatura no
+banco (aí cadastre esse acordo como dívida do tipo parcelamento).
+
+### Cadastrar (`/novocartao`)
+
+| Pergunta | Exemplo |
+| --- | --- |
+| Nome | `Nubank` |
+| Dia de **fechamento** (o "melhor dia de compra" do app) | `3` |
+| Dia de **vencimento** | `10` |
+| Limite total | `12.000` |
+| Quanto do limite está **usado** hoje (fatura atual + parcelas futuras) | `9.594,54` |
+| Valor da fatura **atual** (a que vence no próximo vencimento) | `1.840` |
+| Valores das **próximas** faturas, se o app mostrar (opcional) | `600 400 250` |
+| Taxa do **rotativo** ao mês, que está na fatura (opcional) | `14,5` |
+
+O que você não informar das próximas faturas fica como **"sem mês definido"**
+(parcelas de compras feitas antes do bot): o bot sabe que esse valor ocupa o
+limite, mas não em que mês ele cai. Informe cada fatura com `/fatura nome valor`
+quando ela fechar e tudo se ajusta.
+
+### Em qual fatura a compra cai
+
+Compra **antes** do dia de fechamento entra na fatura que fecha naquele mês;
+compra **no dia do fechamento ou depois** vai para a seguinte. O vencimento é o
+primeiro dia de vencimento depois do fechamento. Ex.: fecha dia 3, vence dia 10:
+compra em 02/12 vence 10/12; compra em 03/12 vence 10/01.
+
+### Registrar compras
+
+Cite o cartão na mensagem:
+
+```
+gastei 80 no mercado no nubank          à vista
+comprei tv 3000 em 10x no nubank        10 parcelas de R$ 300 (também: "10 vezes")
+45 farmácia nubank                      à vista
+```
+
+- A compra soma ao **usado** (a parcelada ocupa o limite inteiro na hora) e entra
+  nas faturas certas. Avisos ao passar de **80%, 90% e 100%** do limite.
+- **No `/mes`:** compra à vista conta na data da compra; compra parcelada conta
+  **uma parcela por mês**, na data de vencimento de cada fatura.
+- **`/parcelado`:** cadastro guiado para compras grandes, com o valor de cada
+  parcela e (opcional) o preço à vista: o bot mostra os **juros embutidos** e a
+  taxa mensal equivalente (ex.: R$ 3.000 à vista em 10x de R$ 330 = R$ 300 de
+  juros, ~1,77% a.m.).
+- "paguei 50 no mercado no nubank" é ambíguo (compra ou pagamento da fatura?):
+  o bot pergunta com botões, incluindo **"Gasto comum (sem cartão)"**.
+
+### Pagar a fatura
+
+- `paguei 1500 da fatura do nubank` (ou `paguei 1500 nubank`) abate a fatura
+  atual (e vencidas, se houver; se sobrar, adianta as próximas) e libera o limite.
+- **Não vira gasto no `/mes`**: as compras já foram contadas. (Pagamentos das
+  dívidas, como empréstimos e acordos, continuam virando gasto.)
+- Se a fatura atual ficar incompleta, o bot responde com **🚨 ATENÇÃO: ROTATIVO**:
+  quanto falta e quanto isso vira em um mês com a taxa do rotativo.
+
+### Rotativo automático
+
+No dia seguinte ao vencimento, se a fatura não foi paga inteira, o bot lança na
+fatura seguinte o que faltou **mais os juros** do rotativo e avisa. Ex.:
+faltaram R$ 500 a 15% a.m. → +R$ 575 na próxima fatura (e +R$ 75 no usado).
+IOF e encargos não entram na estimativa: o valor real, informado com `/fatura`,
+corrige.
+
+### Consultar e corrigir
+
+- `/cartoes`: limite, usado, disponível, fatura atual e próxima de cada cartão,
+  e o **melhor cartão para comprar hoje** (aquele em que a compra vence mais tarde).
+- `/cartao nome`: detalhes, lançamentos da fatura atual, próximas faturas, o
+  "sem mês definido" e os parcelamentos em andamento.
+- `/fatura nome` mostra a fatura atual; `/fatura nome valor` grava o valor que o
+  **banco** cobrou (substitui o calculado); `/fatura nome valor 10/01` faz isso
+  na fatura que vence em 10/01.
+- `/editarcartao nome`: nome, fechamento, vencimento, limite, usado (ajuste pelo
+  app do banco) e taxa do rotativo.
+- `/estorno`: escolhe a compra pelos botões; **total** (parcelas futuras somem, o
+  já cobrado vira crédito na fatura aberta, o gasto sai do `/mes`) ou **parcial**
+  (crédito do valor na fatura aberta, descontado do gasto). Pede confirmação e
+  **não** pode ser desfeito.
+- `/desfazer` desfaz a última compra ou pagamento no cartão (faturas, limite e
+  gastos juntos), respeitando a ordem com os gastos comuns.
+- Lembrete da fatura 3 dias antes do vencimento, se houver algo a pagar.
+
 ## Dívidas
 
 ### Cadastrar
@@ -243,11 +340,11 @@ Mande `/novadivida` e responda uma pergunta por vez:
 | Campo | Obrigatório | Exemplo |
 | --- | --- | --- |
 | Nome | sim | `Empréstimo Nubank` |
-| Tipo | sim | botões: empréstimo, cartão de crédito, financiamento, cheque especial, parcelamento de compra, dívida com pessoa |
-| Credor | não | `Nubank` |
+| Tipo | sim | botões: empréstimo, financiamento, cheque especial, parcelamento de compra, dívida com pessoa (cartão: use `/novocartao`) |
+| Credor | não | o **nome**: `Nubank`, `Casas Bahia`, `Tia Rosa` |
 | Saldo devedor atual | sim | `4.200,00` |
 | Taxa de juros **ao mês** | não (vazio = sem juros) | `2,5` ou `2,5%`; se souber só a anual: `30% a.a.` (é convertida) |
-| Parcelas restantes | não (não perguntado para cartão e cheque especial) | `24` |
+| Parcelas restantes | não (não perguntado para cheque especial) | `24` |
 | Parcela / pagamento mensal | não | `450`; se você informou as parcelas e pular, o bot calcula pela tabela Price |
 | Dia de vencimento | não | `10` |
 | Data de início | não | `15/03/2025`, `03/2025` ou `hoje` |
@@ -266,15 +363,16 @@ nova projeção. O menu volta até você tocar em **✅ Concluir**.
 - O botão de apagar deixa o campo em branco. Na taxa, isso significa "sem juros";
   na parcela, se houver parcelas restantes, o bot recalcula pela tabela Price.
 - O **saldo** não aparece no menu: corrija com `/saldo`, que fica no histórico.
-- Um cartão com faturas registradas não pode trocar de tipo. Mudar para cartão
-  ou cheque especial apaga as "parcelas restantes" (esses tipos não têm).
+- Mudar para cheque especial apaga as "parcelas restantes" (esse tipo não tem).
 - Não dá para editar e cadastrar ao mesmo tempo: termine um ou use `/cancelar`.
+- `/removerdivida nome` apaga uma dívida, depois de confirmar com um botão. O
+  histórico dela some; os gastos dos pagamentos continuam no `/mes`.
 
 ### Pagar e corrigir
 
 - **Texto livre:** `paguei 450 do empréstimo nubank`. O bot procura a dívida pelo
   nome; senão pelo credor (`paguei 450 nubank`); senão pelo tipo
-  (`paguei 1200 da fatura`). Se mais de uma combinar, ou se a mensagem tiver
+  (`paguei 900 do financiamento`). Se mais de uma combinar, ou se a mensagem tiver
   palavras que não são da dívida (`paguei 100 de gasolina do carro`), ele
   pergunta com botões, incluindo **"Não, é um gasto comum"**. Só os verbos de
   pagar contam (*paguei, quitei, amortizei, abati*): `gastei 50 no mercado`
@@ -289,24 +387,12 @@ nova projeção. O menu volta até você tocar em **✅ Concluir**.
   pouco. Confira no app do banco e use `/saldo nome valor`. A correção fica no
   histórico como "ajuste manual". `/saldo nome 0` marca a dívida como quitada.
 - **Desfazer:** `/desfazer` num pagamento apaga o gasto e devolve o saldo e as
-  parcelas. Se o saldo da dívida mudou depois (por `/saldo` ou fatura nova),
-  o bot recusa, para não apagar a correção sem você perceber.
-- Saldo zerado marca a dívida como **quitada**, exceto cartão e cheque especial,
-  que ficam **em dia** (vem fatura nova, o limite continua).
-
-### Cartão de crédito
-
-- `/fatura nubank 1.850,40 277,56 10/12` registra a fatura do mês: total,
-  mínimo (opcional) e vencimento (opcional se o cartão tem dia de vencimento).
-  O saldo do cartão passa a ser o que falta pagar dessa fatura.
-- `/fatura nubank` mostra a situação: total, pago, o que falta e os dias até vencer.
-- Pagamentos do cartão abatem a fatura atual. Se faltar alguma coisa, o bot
-  responde com **🚨 ATENÇÃO: ROTATIVO**, quanto falta, a taxa ao mês e ao ano, e
-  quanto o valor vira em um mês. Pagar abaixo do mínimo gera aviso de atraso.
-- A fatura do mês seguinte já vem com o rotativo somado pelo banco: ela substitui
-  o saldo, e as anteriores ficam no histórico.
-- Cadastre a **taxa do rotativo** (está na fatura) como a taxa do cartão; sem ela o
-  bot não calcula os juros do rotativo.
+  parcelas. Se o saldo da dívida mudou depois (por `/saldo`), o bot recusa,
+  para não apagar a correção sem você perceber.
+- Saldo zerado marca a dívida como **quitada**, exceto cheque especial, que fica
+  **em dia** (o limite continua lá).
+- Cheque especial sem pagamento definido mostra quanto a dívida cresce por mês
+  só de juros (ex.: R$ 1.286,40 a 8% = +R$ 102,91/mês).
 
 ### Consultar e projetar
 
@@ -332,7 +418,8 @@ nova projeção. O menu volta até você tocar em **✅ Concluir**.
 | Base | média dos 3 últimos meses **completos** com registros (sem nenhum: o mês atual até hoje, avisando que é parcial) |
 | Renda | média das entradas |
 | Gastos fixos | média das categorias de `FIXED_CATEGORIES` |
-| Parcelas | soma do pagamento mensal das dívidas ativas com saldo; **cartão fica de fora** (a fatura é consumo, já está nos gastos) |
+| Parcelas | soma do pagamento mensal das dívidas ativas com saldo (cartões ficam de fora: as compras já estão nos gastos) |
+| Cartões | linha à parte: usado de todos os limites, faturas atuais a pagar e o que estiver vencido |
 | Comprometimento | parcelas ÷ renda → 🟢 saudável / 🟡 atenção / 🔴 alerta, pelas faixas do `.env` |
 | Sobra | renda − gastos fixos − parcelas |
 | Total em dívidas | soma dos saldos |
@@ -346,12 +433,15 @@ juros mais altos. A categoria `dívidas` (pagamentos) fica de fora.
 ### Lembretes
 
 - Todo dia às `REMINDER_HOUR`, o bot avisa as dívidas que vencem em até
-  `REMINDER_DAYS_BEFORE` dias (padrão: 9h, 3 dias antes), com o valor da parcela
-  ou o que falta da fatura.
+  `REMINDER_DAYS_BEFORE` dias (padrão: 9h, 3 dias antes), com o valor da parcela,
+  e as faturas de cartão com algo a pagar. No mesmo horário roda o rotativo
+  automático das faturas vencidas.
 - Cada vencimento é avisado uma vez. Se o bot estava desligado no dia certo, o
   aviso sai logo que ele ligar (desde que ainda não tenha vencido).
 - Não avisa se você já registrou um pagamento nos 25 dias antes do vencimento,
   nem se a fatura do cartão já está paga.
+- Lembretes e rotativo automático dependem do **bot rodando**: desligado, nada é
+  enviado; ao religar, ele lança o que ficou para trás.
 - Só dívidas com **dia de vencimento** cadastrado geram lembrete.
 - `/lembretes` lista os próximos vencimentos e manda na hora os avisos pendentes.
 
@@ -463,6 +553,7 @@ src/finbot/
 │   ├── payment.py      "paguei 450 do empréstimo" + argumentos de /pagar e /saldo
 │   ├── debt.py         respostas do cadastro de dívida (taxa, data, dia...)
 │   ├── card.py         argumentos do /fatura
+│   ├── card_text.py    "gastei 80 no mercado no nubank", "em 10x"
 │   ├── categories.py   palavras-chave das categorias
 │   ├── period.py       argumento de mês ("10/2025")
 │   ├── budget.py       argumentos do /orcamento
@@ -470,7 +561,8 @@ src/finbot/
 ├── services/           regras de negócio (sem depender do Telegram)
 │   ├── finance.py      CÁLCULOS: juros, Price, projeção, simulação, estratégias
 │   ├── debts.py        cadastro, pagamentos, ajustes, desfazer, busca
-│   ├── cards.py        faturas de cartão e custo do rotativo
+│   ├── card_math.py    CÁLCULOS do cartão: ciclo da fatura, parcelas, juros embutidos
+│   ├── credit_cards.py cartões: faturas, compras, pagamento, estorno, rotativo
 │   ├── health.py       indicadores e sugestões do /saude
 │   ├── evolution.py    séries do gráfico (histórico + projeção)
 │   ├── reminders.py    quais vencimentos avisar
@@ -484,7 +576,10 @@ src/finbot/
     ├── debt_form.py    roteiro das perguntas do cadastro (testável sem Telegram)
     ├── debt_edit.py    /editardivida (menu de campos)
     ├── payments.py     pagamentos por texto, /pagar, /saldo
-    ├── cards.py        /fatura e alerta de rotativo
+    ├── card_form.py    roteiro das perguntas do /novocartao
+    ├── card_setup.py   /novocartao e /editarcartao
+    ├── card_views.py   /cartoes, /cartao e /fatura
+    ├── card_ops.py     compras, pagamento, /parcelado, /estorno, rotativo
     ├── strategy.py     /simular e /estrategia
     ├── health.py       /saude
     ├── chart.py        /grafico (matplotlib)
@@ -536,6 +631,12 @@ Não é preciso se preocupar com segurança no handler novo: o filtro de
 - **Pagamento = gasto + evento + saldo numa transação só**: nunca fica metade gravada.
 - **Histórico em `debt_events`**: cada cadastro, pagamento, ajuste e fatura guarda
   o saldo antes e depois; é a fonte do `/divida` e do `/grafico`.
-- **Cartão e cheque especial nunca "quitam"**: zerados, ficam "em dia".
+- **Cartão separado das dívidas**: cartão é meio de pagamento; só o rotativo e
+  os acordos de fatura são dívida. As compras viram gastos e montam as faturas
+  pelo dia de fechamento; pagar a fatura não é gasto (senão contaria duas vezes).
+- **Fatura = soma dos lançamentos, ou o valor do banco**: o banco sabe de coisas
+  que o bot não vê (anuidade, IOF, compras não registradas), então o valor
+  informado com `/fatura` sempre prevalece.
+- **Cheque especial nunca "quita"**: zerado, fica "em dia".
 - **Sugestões só com regras transparentes**: nada de conselho genérico; cada
   sugestão mostra os números de onde veio.

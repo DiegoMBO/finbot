@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from finbot.parsing.message import ParsedEntry
 from finbot.parsing.text import normalize
-from finbot.services import cards, finance, transactions
+from finbot.services import finance, transactions
 from finbot.services.transactions import month_bounds
 from finbot.timeutil import from_db, to_db
 
@@ -194,6 +194,25 @@ def update_field(conn: sqlite3.Connection, debt: Debt, field: str, value) -> Deb
     return get(conn, debt.id)
 
 
+def delete(conn: sqlite3.Connection, debt: Debt) -> None:
+    """Apaga a dívida e tudo o que é só dela (histórico, faturas antigas, lembretes).
+
+    Os GASTOS criados pelos pagamentos ficam: eles aconteceram e continuam
+    no /mes e no /exportar.
+    """
+    with conn:
+        conn.execute("DELETE FROM debt_reminders WHERE debt_id = ?", (debt.id,))
+        conn.execute("DELETE FROM debt_events WHERE debt_id = ?", (debt.id,))
+        conn.execute("DELETE FROM card_statements WHERE debt_id = ?", (debt.id,))
+        conn.execute("DELETE FROM debts WHERE id = ?", (debt.id,))
+
+
+def list_all(conn: sqlite3.Connection) -> list[Debt]:
+    """Todas as dívidas, inclusive as quitadas."""
+    rows = conn.execute("SELECT * FROM debts ORDER BY status, name_key").fetchall()
+    return [_debt(r) for r in rows]
+
+
 def get(conn: sqlite3.Connection, debt_id: int) -> Debt:
     return _debt(conn.execute("SELECT * FROM debts WHERE id = ?", (debt_id,)).fetchone())
 
@@ -214,7 +233,7 @@ def events(conn: sqlite3.Connection, debt_id: int) -> list[DebtEvent]:
     return [_event(r) for r in rows]
 
 
-def find(conn: sqlite3.Connection, query: str) -> list[Debt]:
+def find(conn: sqlite3.Connection, query: str, include_closed: bool = False) -> list[Debt]:
     """Procura dívidas ativas pelo nome ou credor, sem acento e sem maiúsculas.
 
     1. nome exatamente igual -> só ela;
@@ -224,7 +243,7 @@ def find(conn: sqlite3.Connection, query: str) -> list[Debt]:
     wanted = name_key(query)
     if not wanted:
         return []
-    debts = list_active(conn)
+    debts = list_all(conn) if include_closed else list_active(conn)
     exact = [d for d in debts if name_key(d.name) == wanted]
     if exact:
         return exact
@@ -255,7 +274,6 @@ class PaymentResult:
     interest_cents: int  # juros do mês lançados antes de abater (0 se não houve)
     balance_before_cents: int  # saldo ANTES dos juros e do pagamento
     overpaid_cents: int  # quanto o pagamento passou do saldo devido
-    statement: cards.Statement | None = None  # cartão: a fatura que o pagamento abateu
 
     @property
     def balance_after_cents(self) -> int:
@@ -290,8 +308,8 @@ def _payments_in_month(
 
 
 def charges_interest(debt: Debt) -> bool:
-    """Cartão não acumula juros no pagamento: os encargos do rotativo já vêm
-    somados no total da fatura seguinte, registrada com /fatura."""
+    """Dívidas antigas do tipo cartão (de antes do módulo de cartões) não acumulam
+    juros no pagamento. Cartões novos ficam em services/credit_cards.py."""
     return debt.kind != "cartao"
 
 
@@ -337,16 +355,14 @@ def pay(
         elif first_of_month:
             installments -= 1  # a parcela do mês foi paga
     status, closed_at = _status_for(debt, after, now)
-    # Cartão: o pagamento abate a fatura atual (se houver uma registrada).
-    statement = cards.current(conn, debt.id) if debt.kind == "cartao" else None
 
     entry = ParsedEntry("expense", amount_cents, DEBT_CATEGORY, f"pagamento {debt.name}")
-    with conn:  # gasto + evento + saldo (+ fatura): entram todos, ou nenhum
+    with conn:  # gasto + evento + saldo: entram todos, ou nenhum
         transaction_id = transactions.insert(conn, entry, now)
         conn.execute(
             "INSERT INTO debt_events (debt_id, kind, amount_cents, interest_cents,"
-            " balance_before_cents, balance_after_cents, transaction_id, statement_id,"
-            " occurred_at) VALUES (?, 'pagamento', ?, ?, ?, ?, ?, ?, ?)",
+            " balance_before_cents, balance_after_cents, transaction_id, occurred_at)"
+            " VALUES (?, 'pagamento', ?, ?, ?, ?, ?, ?)",
             (
                 debt.id,
                 amount_cents,
@@ -354,7 +370,6 @@ def pay(
                 debt.balance_cents,
                 after,
                 transaction_id,
-                statement.id if statement else None,
                 to_db(now),
             ),
         )
@@ -363,11 +378,6 @@ def pay(
             " closed_at = ? WHERE id = ?",
             (after, installments, status, closed_at, debt.id),
         )
-        if statement:
-            conn.execute(
-                "UPDATE card_statements SET paid_cents = paid_cents + ? WHERE id = ?",
-                (amount_cents, statement.id),
-            )
     return PaymentResult(
         debt=get(conn, debt.id),
         transaction_id=transaction_id,
@@ -375,7 +385,6 @@ def pay(
         interest_cents=interest,
         balance_before_cents=debt.balance_cents,
         overpaid_cents=overpaid,
-        statement=cards.get(conn, statement.id) if statement else None,
     )
 
 

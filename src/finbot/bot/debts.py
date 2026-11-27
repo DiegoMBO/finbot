@@ -22,13 +22,12 @@ from telegram.ext import (
 )
 
 from finbot.bot import debt_form as form
-from finbot.bot.cards import card_status_line
 from finbot.config import Settings
 from finbot.money import format_brl, format_percent
 from finbot.parsing.debt import FieldError, is_skip
 from finbot.parsing.period import MONTH_NAMES
-from finbot.services import cards, debts, finance
-from finbot.services.cards import Statement
+from finbot.services import credit_cards as cc
+from finbot.services import debts, finance
 from finbot.services.debts import KIND_LABELS, Debt, DebtEvent
 
 ASKING, CONFIRM = range(2)
@@ -80,6 +79,12 @@ def describe_projection(
             "o saldo não diminui."
         )
     if proj.status == "sem_pagamento":
+        if interest:
+            # Sem pagamento não há data de quitação, mas o custo é o dado mais importante.
+            return (
+                f"🚨 Sem pagamento mensal definido: só de juros, a dívida cresce "
+                f"{format_brl(interest)} por mês."
+            )
         return "Sem pagamento mensal definido: não dá para estimar a quitação."
     if proj.status == "longa":
         return "Nesse ritmo, leva mais de 100 anos para quitar."
@@ -100,9 +105,7 @@ def projection_text(d: Debt, today: date) -> str:
     return describe_projection(d.balance_cents, d.rate_ppm, d.payment_cents, d.due_day, today)
 
 
-def format_debt_list(
-    items: list[Debt], today: date, statements: dict[int, Statement] | None = None
-) -> str:
+def format_debt_list(items: list[Debt], today: date) -> str:
     if not items:
         return "Nenhuma dívida cadastrada. Use /novadivida para cadastrar a primeira."
     lines = [f"💳 Suas dívidas ({len(items)})", ""]
@@ -116,9 +119,6 @@ def format_debt_list(
         lines.append(f"{i}. {d.name} · {d.kind_label}")
         lines.append("   " + " · ".join(parts))
         projection = debts.projection(d)
-        card_line = card_status_line(d, (statements or {}).get(d.id), today)
-        if card_line:
-            lines.append(f"   {card_line}")
         lines.append(f"   {projection_text(d, today)}")
         if projection.status == "quitavel":
             total_interest += projection.total_interest_cents
@@ -150,7 +150,6 @@ def format_debt_details(
     history: list[DebtEvent],
     today: date,
     tz,
-    statement: Statement | None = None,
 ) -> str:
     lines = [f"💳 {d.name} ({d.kind_label})"]
     if d.creditor:
@@ -174,9 +173,6 @@ def format_debt_details(
         "",
         "📈 " + projection_text(d, today),
     ]
-    card_line = card_status_line(d, statement, today)
-    if card_line:
-        lines.append(f"{card_line} · detalhes: /fatura {d.name}")
     computed = debts.contract_mismatch(d)
     if computed is not None:
         lines.append(
@@ -224,9 +220,11 @@ def format_draft(draft: form.Draft, today: date) -> str:
 
 
 def kind_keyboard(prefix: str = CB) -> InlineKeyboardMarkup:
+    # "Cartão de crédito" não aparece: cartões têm cadastro próprio (/novocartao).
     buttons = [
         InlineKeyboardButton(label.capitalize(), callback_data=f"{prefix}kind:{key}")
         for key, label in KIND_LABELS.items()
+        if key != "cartao"
     ]
     return InlineKeyboardMarkup([buttons[i : i + 2] for i in range(0, len(buttons), 2)])
 
@@ -288,9 +286,9 @@ async def _advance(
 
 async def new_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/novadivida: começa (ou recomeça) o cadastro."""
-    if context.user_data.get(EDITING):
+    if any(context.user_data.get(k) for k in (EDITING, "card_draft", "card_edit")):
         await update.effective_message.reply_text(
-            "Há uma edição de dívida em andamento. Toque em ✅ Concluir ou mande /cancelar antes."
+            "Há outra edição ou cadastro em andamento. Termine ou mande /cancelar antes."
         )
         return ConversationHandler.END
     first = form.next_step({}, None)
@@ -417,9 +415,16 @@ def build_conversation() -> ConversationHandler:
 async def list_debts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/dividas: resumo de todas as dívidas ativas."""
     conn = _db(context)
-    items = debts.list_active(conn)
-    statements = {d.id: s for d in items if d.kind == "cartao" if (s := cards.current(conn, d.id))}
-    await update.effective_message.reply_text(format_debt_list(items, _today(context), statements))
+    text = format_debt_list(debts.list_active(conn), _today(context))
+    cards = cc.list_cards(conn)
+    if cards:
+        used = sum(c.used_cents for c in cards)
+        limit = sum(c.limit_cents for c in cards)
+        text += (
+            f"\n\n💳 Cartões ({len(cards)}): usado {format_brl(used)} de {format_brl(limit)} "
+            "(não são dívidas com juros enquanto você paga a fatura inteira). /cartoes"
+        )
+    await update.effective_message.reply_text(text)
 
 
 async def show_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -447,6 +452,59 @@ async def show_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         debts.events(conn, debt.id),
         _today(context),
         _settings(context).timezone,
-        cards.current(conn, debt.id) if debt.kind == "cartao" else None,
     )
     await message.reply_text(text)
+
+
+# --- remover ----------------------------------------------------------------
+
+REMOVE_CB = "remover:"
+
+
+async def remove_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/removerdivida nome: pede confirmação antes de apagar."""
+    message = update.effective_message
+    conn = _db(context)
+    query = " ".join(context.args or [])
+    found = debts.find(conn, query, include_closed=True) if query else []
+    if len(found) != 1:
+        names = ", ".join(d.name for d in (found or debts.list_all(conn))) or "nenhuma"
+        problem = (
+            "Use /removerdivida nome"
+            if not query
+            else ("Não encontrei" if not found else "Mais de uma dívida combina com")
+        )
+        detail = f" {query!r}" if query else ""
+        await message.reply_text(f"{problem}{detail}. Dívidas: {names}.")
+        return
+    d = found[0]
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🗑️ Sim, apagar", callback_data=f"{REMOVE_CB}{d.id}:sim"),
+                InlineKeyboardButton("Não", callback_data=f"{REMOVE_CB}{d.id}:nao"),
+            ]
+        ]
+    )
+    await message.reply_text(
+        f"Apagar a dívida {d.name!r} ({d.kind_label}, saldo {format_brl(d.balance_cents)})?\n"
+        "O histórico dela some. Os gastos dos pagamentos continuam no /mes. "
+        "Isso não pode ser desfeito.",
+        reply_markup=keyboard,
+    )
+
+
+async def remove_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_reply_markup(reply_markup=None)
+    raw_id, choice = query.data.removeprefix(REMOVE_CB).split(":")
+    conn = _db(context)
+    d = next((x for x in debts.list_all(conn) if x.id == int(raw_id)), None)
+    if choice != "sim":
+        await query.message.reply_text("Ok, nada foi apagado.")
+    elif d is None:
+        await query.message.reply_text("Essa dívida já não existe.")
+    else:
+        debts.delete(conn, d)
+        await query.message.reply_text(f"🗑️ Dívida {d.name!r} apagada.")

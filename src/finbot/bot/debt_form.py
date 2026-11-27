@@ -50,7 +50,7 @@ STEPS: list[Step] = [
     Step(
         "creditor",
         True,
-        lambda d: "Quem é o credor (banco, loja ou pessoa)?",
+        lambda d: "Qual o NOME do credor? Ex.: Nubank, Casas Bahia, Tia Rosa",
         lambda t, _: p.parse_text(t),
     ),
     Step(

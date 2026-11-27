@@ -12,7 +12,6 @@ from datetime import UTC, date, datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
-from finbot.bot.cards import revolving_warning
 from finbot.bot.debts import describe_projection
 from finbot.bot.texts import format_alert
 from finbot.config import Settings
@@ -59,14 +58,8 @@ def format_payment(result: PaymentResult, today: date) -> str:
     before = format_brl(result.balance_before_cents)
     lines.append(f"Saldo: {before} → {format_brl(result.balance_after_cents)}")
     if d.kind == "cartao":
-        # Cartão: o que importa é a fatura, e o aviso de rotativo vem em destaque.
-        if result.statement is not None:
-            lines += ["", revolving_warning(d, result.statement, today)]
-        else:
-            lines.append(
-                f"Registre a fatura com /fatura {d.name} total para eu acompanhar "
-                "o que falta e avisar sobre o rotativo."
-            )
+        # Dívida antiga do tipo cartão (de antes do módulo de cartões).
+        lines.append("Cartões agora têm cadastro próprio: /novocartao (e /removerdivida esta).")
     elif result.paid_off:
         lines.append("🎉 Dívida quitada!")
         if result.overpaid_cents:

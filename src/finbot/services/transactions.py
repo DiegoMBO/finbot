@@ -77,6 +77,20 @@ def add(conn: sqlite3.Connection, entry: ParsedEntry, now: datetime) -> Transact
     return get(conn, transaction_id)
 
 
+def last_excluding(conn: sqlite3.Connection, excluded: set[int]) -> Transaction | None:
+    """O registro mais recente cujo id NÃO está em `excluded` (ex.: gastos de cartão,
+    que são desfeitos pela compra, e não um a um)."""
+    for row in conn.execute("SELECT * FROM transactions ORDER BY id DESC"):
+        if row["id"] not in excluded:
+            return _from_row(row)
+    return None
+
+
+def delete(conn: sqlite3.Connection, transaction_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+
+
 def last(conn: sqlite3.Connection) -> Transaction | None:
     row = conn.execute("SELECT * FROM transactions ORDER BY id DESC LIMIT 1").fetchone()
     return _from_row(row) if row else None

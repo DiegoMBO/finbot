@@ -11,6 +11,7 @@ from finbot.bot.debts import short_month
 from finbot.config import HealthSettings, Settings
 from finbot.money import format_brl, format_percent
 from finbot.parsing.period import MONTH_NAMES, month_label
+from finbot.services import credit_cards as cc
 from finbot.services import finance, health
 from finbot.services.health import Indicators, Month, Suggestion, SuggestionReport
 
@@ -127,6 +128,28 @@ async def health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     today = datetime.now(settings.timezone).date()
     cfg = settings.health
     lines = format_indicators(health.indicators(conn, today, settings.timezone, cfg), cfg)
+    card_line = format_cards_line(conn, today)
+    if card_line:
+        lines.append(card_line)
     lines.append("")
     lines += format_suggestions(health.suggestions(conn, today, settings.timezone, cfg), cfg, today)
     await update.effective_message.reply_text("\n".join(lines))
+
+
+def format_cards_line(conn, today: date) -> str | None:
+    """Cartões: uso do limite e faturas a pagar. As COMPRAS já estão nos gastos;
+    aqui é só para você ver quanto do limite está comprometido."""
+    cards = cc.list_cards(conn)
+    if not cards:
+        return None
+    used = sum(c.used_cents for c in cards)
+    limit = sum(c.limit_cents for c in cards)
+    current = sum(inv.remaining_cents for c in cards if (inv := cc.current_invoice(conn, c, today)))
+    overdue = sum(i.remaining_cents for c in cards for i in cc.overdue_invoices(conn, c, today))
+    text = (
+        f"Cartões: usado {format_brl(used)} de {format_brl(limit)} "
+        f"({format_bp(used * 10_000 // limit)}) · faturas atuais a pagar {format_brl(current)}"
+    )
+    if overdue:
+        text += f" · 🚨 vencido {format_brl(overdue)}"
+    return text

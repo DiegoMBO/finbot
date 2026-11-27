@@ -6,10 +6,10 @@ Regras:
   estava desligado no dia certo, o aviso sai assim que ele ligar, ainda antes
   de vencer.
 - Cada vencimento é avisado UMA vez (tabela debt_reminders).
-- Cartão: o vencimento e o valor vêm da fatura atual; fatura paga não gera aviso.
-- Outras dívidas: o vencimento vem do dia cadastrado. Se já houve pagamento nos
-  25 dias antes do vencimento, consideramos a parcela paga e não avisamos.
+- O vencimento vem do dia cadastrado. Se já houve pagamento nos 25 dias antes
+  do vencimento, consideramos a parcela paga e não avisamos.
 - Dívida sem dia de vencimento ou com saldo zero não gera aviso.
+- As faturas dos CARTÕES têm lembretes próprios (services/credit_cards.py).
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from finbot.services import cards, debts, finance
-from finbot.services.cards import Statement
+from finbot.services import debts, finance
 from finbot.services.debts import Debt
 from finbot.timeutil import from_db, to_db
 
@@ -31,8 +30,7 @@ PAID_WINDOW_DAYS = 25
 class Reminder:
     debt: Debt
     due_date: date
-    amount_cents: int | None  # parcela (ou o que falta da fatura); None se não há valor fixo
-    statement: Statement | None
+    amount_cents: int | None  # parcela; None se não há valor fixo
     already_sent: bool = False
 
 
@@ -55,19 +53,13 @@ def _sent(conn: sqlite3.Connection, debt_id: int, due: date) -> bool:
 
 def next_due(conn: sqlite3.Connection, d: Debt, today: date, tz: ZoneInfo) -> Reminder | None:
     """O próximo vencimento que ainda precisa ser pago, ou None."""
-    if d.kind == "cartao":
-        s = cards.current(conn, d.id)
-        if s is not None and s.due_date >= today:
-            if s.remaining_cents == 0:
-                return None  # fatura paga
-            return Reminder(d, s.due_date, s.remaining_cents, s, _sent(conn, d.id, s.due_date))
     if d.due_day is None or d.balance_cents == 0:
         return None
     due = finance.next_due_date(today, d.due_day)
     if _paid_recently(conn, d.id, due, tz):
         return None
     amount = min(d.payment_cents, d.balance_cents) if d.payment_cents else None
-    return Reminder(d, due, amount, None, _sent(conn, d.id, due))
+    return Reminder(d, due, amount, _sent(conn, d.id, due))
 
 
 def upcoming(conn: sqlite3.Connection, today: date, tz: ZoneInfo, days: int = 31) -> list[Reminder]:

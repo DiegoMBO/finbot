@@ -25,7 +25,7 @@ from finbot.bot.debts import short_month
 from finbot.config import Settings
 from finbot.money import format_brl
 from finbot.parsing.period import MONTH_NAMES
-from finbot.services import debts, evolution
+from finbot.services import debts, evolution, finance
 from finbot.services.debts import Debt
 from finbot.services.evolution import Evolution
 
@@ -59,7 +59,11 @@ def subtitle(d: Debt, ev: Evolution) -> str:
     elif ev.status == "estagnada":
         text += " · a parcela só cobre os juros"
     elif ev.status == "sem_pagamento":
-        text += " · sem pagamento mensal: sem projeção"
+        interest = finance.monthly_interest(d.balance_cents, d.rate_ppm)
+        if interest:
+            text += f" · sem pagamento: cresce {format_brl(interest)}/mês de juros"
+        else:
+            text += " · sem pagamento mensal: sem projeção"
     elif ev.status == "em_dia":
         text += " · em dia"
     return text

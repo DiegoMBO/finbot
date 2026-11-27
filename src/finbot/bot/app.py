@@ -12,7 +12,9 @@ from telegram.ext import (
 
 from finbot import db
 from finbot.bot import (
-    cards,
+    card_ops,
+    card_setup,
+    card_views,
     chart,
     debt_edit,
     debts,
@@ -60,7 +62,11 @@ def build_application(settings: Settings) -> Application:
     # de uma pergunta, e não pode cair no handler de texto livre lá embaixo.
     app.add_handler(debts.build_conversation())
     app.add_handler(debt_edit.build_conversation())  # /editardivida: mesma razão
-    app.add_handler(CommandHandler(["start", "ajuda"], handlers.start))
+    app.add_handler(card_setup.build_new_card_conversation())  # /novocartao
+    app.add_handler(card_setup.build_edit_card_conversation())  # /editarcartao
+    app.add_handler(card_ops.build_installment_conversation())  # /parcelado
+    app.add_handler(card_ops.build_refund_conversation())  # /estorno
+    app.add_handler(CommandHandler(["start", "ajuda", "help"], handlers.start))
     app.add_handler(CommandHandler("hoje", handlers.today))
     app.add_handler(CommandHandler("mes", handlers.month))
     app.add_handler(CommandHandler("desfazer", handlers.undo))
@@ -68,21 +74,32 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("exportar", handlers.export_csv))
     app.add_handler(CommandHandler("dividas", debts.list_debts))
     app.add_handler(CommandHandler("divida", debts.show_debt))
+    app.add_handler(CommandHandler("removerdivida", debts.remove_command))
+    app.add_handler(CallbackQueryHandler(debts.remove_confirm, pattern=f"^{debts.REMOVE_CB}"))
     app.add_handler(CommandHandler("pagar", payments.pay_command))
     app.add_handler(CommandHandler("saldo", payments.balance_command))
-    app.add_handler(CommandHandler("fatura", cards.statement_command))
+    app.add_handler(CommandHandler("fatura", card_views.invoice_command))
+    app.add_handler(CommandHandler("cartoes", card_views.cards_command))
+    app.add_handler(CommandHandler("cartao", card_views.card_command))
     app.add_handler(CommandHandler("simular", strategy.simulate_command))
     app.add_handler(CommandHandler("estrategia", strategy.strategy_command))
     app.add_handler(CommandHandler("saude", health.health_command))
     app.add_handler(CommandHandler("grafico", chart.chart_command))
     app.add_handler(CommandHandler("lembretes", reminders.reminders_command))
     app.add_handler(CallbackQueryHandler(handlers.payment_choice, pattern=f"^{payments.CB}"))
+    app.add_handler(CallbackQueryHandler(handlers.card_choice, pattern=f"^{card_ops.CB}"))
     app.add_handler(CommandHandler("cancelar", debts.cancel))  # fora de um cadastro
     # Qualquer texto que não seja comando é tratado como um registro.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.register))
     # Botões de cadastros que já terminaram.
     app.add_handler(
-        CallbackQueryHandler(debts.expired_button, pattern=f"^({debts.CB}|{debt_edit.CB})")
+        CallbackQueryHandler(
+            debts.expired_button,
+            pattern=(
+                f"^({debts.CB}|{debt_edit.CB}|{card_setup.CB}|{card_setup.EDIT_CB}"
+                f"|{card_ops.PCB}|{card_ops.RCB})"
+            ),
+        )
     )
 
     # Tarefas agendadas: lembretes de vencimento (todo dia e logo ao ligar).

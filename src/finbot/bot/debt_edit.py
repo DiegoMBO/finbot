@@ -156,7 +156,7 @@ async def _show_menu(message: Message, context) -> int:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """/editardivida [nome]."""
     message = update.effective_message
-    if context.user_data.get(DRAFT):
+    if any(context.user_data.get(k) for k in (DRAFT, "card_draft", "card_edit")):
         await message.reply_text(
             "Há um cadastro de dívida em andamento. Termine ou mande /cancelar antes."
         )

@@ -12,7 +12,7 @@ from fakes import Bot
 
 from finbot import db
 from finbot.bot import reminders as bot_reminders
-from finbot.services import cards, debts, reminders
+from finbot.services import debts, reminders
 
 SP = ZoneInfo("America/Sao_Paulo")
 TODAY = date(2026, 11, 26)
@@ -78,17 +78,6 @@ def test_sem_vencimento_ou_saldo_zero_nao_avisa(conn):
     d = loan(conn, "Quitada", 28)
     debts.set_balance(conn, d, 0, NOW)
     assert reminders.upcoming(conn, TODAY, SP) == []
-
-
-def test_cartao_usa_a_fatura(conn):
-    d = debts.create(conn, debts.NewDebt("Cartão", "cartao", 1, due_day=10), NOW)
-    cards.register(conn, d.id, 185_040, None, date(2026, 11, 28), NOW)
-    debts.pay(conn, debts.get(conn, d.id), 125_040, NOW, SP)
-    [r] = reminders.pending(conn, TODAY, SP, 3)
-    assert (r.due_date, r.amount_cents) == (date(2026, 11, 28), 60_000)
-    assert r.statement is not None
-    debts.pay(conn, debts.get(conn, d.id), 60_000, NOW, SP)  # pagou o resto
-    assert reminders.pending(conn, TODAY, SP, 3) == []
 
 
 def test_textos():

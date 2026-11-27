@@ -54,7 +54,6 @@ def test_format_percent(ppm, text):
     ("text", "kind"),
     [
         ("Empréstimo", "emprestimo"),
-        ("cartão de crédito", "cartao"),
         ("CHEQUE  especial", "cheque_especial"),
         ("parcelado", "parcelamento"),
         ("pessoa", "pessoa"),
@@ -62,6 +61,11 @@ def test_format_percent(ppm, text):
 )
 def test_tipo_digitado(text, kind):
     assert p.parse_kind(text) == kind
+
+
+def test_cartao_manda_para_o_cadastro_de_cartao():
+    with pytest.raises(p.FieldError, match="/novocartao"):
+        p.parse_kind("cartão de crédito")
 
 
 def test_tipo_desconhecido():

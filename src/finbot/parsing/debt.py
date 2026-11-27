@@ -62,6 +62,8 @@ def parse_kind(text: str) -> str:
     kind = _KIND_WORDS.get(normalize(" ".join(text.split())))
     if kind is None:
         raise FieldError("toque em um dos botões de tipo")
+    if kind == "cartao":
+        raise FieldError("cartão de crédito agora tem cadastro próprio: use /novocartao")
     return kind
 
 
@@ -77,6 +79,23 @@ def parse_money(text: str) -> int:
         return parse_amount(text)
     except AmountError as exc:
         raise FieldError(f"valor inválido ({exc}); exemplo: 4.200,00") from exc
+
+
+def parse_money_or_zero(text: str) -> int:
+    """Como parse_money, mas aceita 0 (ex.: limite utilizado zerado)."""
+    if normalize(text.strip()) in {"0", "0,00", "0.00", "zero", "nada"}:
+        return 0
+    return parse_money(text)
+
+
+def parse_money_list(text: str) -> tuple[int, ...]:
+    """ "600 400 250" ou "600; 400; 250" -> (60000, 40000, 25000)."""
+    parts = [p for p in re.split(r"[;\s]+", text.strip()) if p and normalize(p) != "r$"]
+    if not parts:
+        raise FieldError("escreva os valores separados por espaço, ex.: 600 400 250")
+    if len(parts) > 12:
+        raise FieldError("informe no máximo 12 faturas")
+    return tuple(parse_money(p) for p in parts)
 
 
 def parse_rate(text: str) -> int:

@@ -13,9 +13,10 @@ from datetime import UTC, date, datetime, time
 from telegram import Update
 from telegram.ext import Application, ContextTypes
 
-from finbot.bot.cards import statement_label
+from finbot.bot import card_ops
 from finbot.config import Settings
 from finbot.money import format_brl
+from finbot.services import credit_cards as cc
 from finbot.services import reminders
 from finbot.services.reminders import Reminder
 
@@ -38,13 +39,7 @@ def when_text(due: date, today: date) -> str:
 def format_reminder(r: Reminder, today: date) -> str:
     d = r.debt
     lines = [f"⏰ Lembrete: {d.name} {when_text(r.due_date, today)}."]
-    if r.statement is not None:
-        lines.append(
-            f"{statement_label(r.statement).capitalize()}: falta {format_brl(r.amount_cents)}."
-        )
-        lines.append("Pagar menos que o total leva o resto para o rotativo.")
-        example = f"paguei {format_brl(r.amount_cents)[3:]} da fatura"
-    elif r.amount_cents:
+    if r.amount_cents:
         lines.append(f"Parcela: {format_brl(r.amount_cents)}.")
         example = f"paguei {format_brl(r.amount_cents)[3:]} do {d.name}"
     else:
@@ -62,9 +57,11 @@ async def send_pending(context: ContextTypes.DEFAULT_TYPE) -> int:
     for r in items:
         await context.bot.send_message(settings.allowed_chat_id, format_reminder(r, today))
         reminders.mark_sent(conn, r.debt.id, r.due_date, datetime.now(UTC))
-    if items:
-        logger.info("Lembretes enviados: %d", len(items))
-    return len(items)
+    # Cartões: rotativo das faturas vencidas e lembretes de fatura.
+    sent = len(items) + await card_ops.run_daily(context)
+    if sent:
+        logger.info("Avisos enviados: %d", sent)
+    return sent
 
 
 async def reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -84,13 +81,14 @@ async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     sent = await send_pending(context)
     today = datetime.now(settings.timezone).date()
     items = reminders.upcoming(conn, today, settings.timezone)
+    invoices = cc.due_reminders(conn, today, 31, include_sent=True)
     lines = [
         f"🔔 Lembretes: todo dia às {settings.reminder_hour}h, "
         f"{settings.reminder_days_before} dia(s) antes de cada vencimento."
     ]
     if sent:
         lines.append(f"Acabei de mandar {sent} lembrete(s) pendente(s).")
-    if not items:
+    if not items and not invoices:
         lines.append(
             "Nenhum vencimento em aberto nos próximos 31 dias "
             "(dívidas sem dia de vencimento não geram lembrete)."
@@ -101,4 +99,10 @@ async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             value = f" · {format_brl(r.amount_cents)}" if r.amount_cents else ""
             status = " ✓ avisado" if r.already_sent else ""
             lines.append(f"• {r.debt.name}: {when_text(r.due_date, today)}{value}{status}")
+        for r in invoices:
+            status = " ✓ avisado" if r.already_sent else ""
+            lines.append(
+                f"• Fatura {r.card.name}: {when_text(r.invoice.due_date, today)}"
+                f" · falta {format_brl(r.invoice.remaining_cents)}{status}"
+            )
     await update.effective_message.reply_text("\n".join(lines))

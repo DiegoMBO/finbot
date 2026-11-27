@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from telegram import Message, Update
 from telegram.ext import ContextTypes
 
-from finbot.bot import payments
+from finbot.bot import card_ops, payments
 from finbot.bot.texts import format_alert, format_budget_line
 from finbot.config import Settings
 from finbot.money import format_brl
@@ -22,6 +22,7 @@ from finbot.parsing.budget import BudgetArgsError, parse_budget_args
 from finbot.parsing.message import ParseError, parse_message
 from finbot.parsing.period import PeriodError, month_label, parse_month
 from finbot.services import budgets, debts, export, transactions
+from finbot.services import credit_cards as cc
 from finbot.services.budgets import BudgetStatus
 from finbot.services.transactions import Transaction
 
@@ -44,15 +45,24 @@ HELP_TEXT = (
     "/orcamento remover categoria: apaga o limite\n"
     "/exportar: baixa um CSV com tudo (ou /exportar 10/2025 para um mês)\n"
     "/ajuda: mostra esta mensagem\n\n"
+    "Cartões de crédito:\n"
+    "/novocartao: cadastra um cartão (fechamento, vencimento, limite...)\n"
+    "/cartoes: todos os cartões e o melhor para usar hoje\n"
+    "/cartao nome: limite, fatura atual, próximas e parcelamentos\n"
+    "/fatura nome [valor]: mostra a fatura, ou informa o valor real do banco\n"
+    "/parcelado: compra parcelada guiada (com juros embutidos)\n"
+    "/estorno: estorno total ou parcial de uma compra\n"
+    "/editarcartao nome: muda limite, datas, rotativo...\n"
+    "Compras: cite o cartão. Ex.: gastei 80 no mercado no nubank · "
+    "comprei tv 3000 em 10x no nubank · paguei 1500 da fatura do nubank\n\n"
     "Dívidas:\n"
     "/novadivida: cadastra uma dívida (perguntas uma a uma)\n"
     "/dividas: resumo de todas as dívidas\n"
     "/divida nome: detalhes e histórico de uma dívida\n"
     "/editardivida nome: muda taxa, parcela, vencimento e outros dados\n"
+    "/removerdivida nome: apaga uma dívida (pede confirmação)\n"
     "/pagar nome valor: registra um pagamento (ou escreva: paguei 450 do empréstimo nubank)\n"
     "/saldo nome valor: corrige o saldo pelo valor do app do banco\n"
-    "/fatura cartão total [mínimo] [vencimento]: registra a fatura do mês\n"
-    "/fatura cartão: mostra a fatura atual e o que falta pagar\n"
     "/simular nome extra: quanto você economiza pagando um extra por mês\n"
     "/estrategia [extra]: compara avalanche e bola de neve\n"
     "/saude: indicadores de saúde financeira e sugestões\n"
@@ -84,14 +94,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Texto livre: pagamento de dívida ("paguei 450 do empréstimo nubank")
-    ou, se não for, um gasto/entrada comum ("gastei 35 no mercado")."""
+    """Texto livre, nesta ordem:
+    1. cita um cartão -> compra ou pagamento da fatura ("gastei 80 no mercado no nubank");
+    2. paga uma dívida -> pagamento ("paguei 450 do empréstimo bradesco");
+    3. senão, gasto/entrada comum ("gastei 35 no mercado")."""
     message = update.effective_message
     if message is None or not message.text:
+        return
+    if await card_ops.try_card(message, context, message.text):
         return
     if await payments.try_payment(message, context, message.text):
         return
     await record_entry(message, context, message.text)
+
+
+async def card_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Botões "compra no cartão / pagamento da fatura / gasto comum"."""
+    text = await card_ops.on_choice(update, context)
+    if text is not None:
+        await record_entry(update.callback_query.message, context, text)
 
 
 async def payment_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -278,17 +299,38 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+def _card_action_is_newer(conn, action: cc.LastAction, last: Transaction | None) -> bool:
+    """A ação no cartão aconteceu depois do último gasto comum?
+
+    Os horários têm precisão de segundos; no empate, a compra decide pela ordem
+    de gravação dos gastos (id). Sem gasto para comparar (pagamento), vale o cartão.
+    """
+    if last is None or action.occurred_at > last.created_at:
+        return True
+    if action.occurred_at < last.created_at:
+        return False
+    ref = cc.action_last_transaction_id(conn, action)
+    return ref is None or ref > last.id
+
+
 async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/desfazer: apaga o registro mais recente.
 
-    Se o registro for o pagamento de uma dívida, desfaz os dois juntos: o gasto
-    some e o saldo da dívida volta ao que era antes do pagamento.
+    - Compra ou pagamento no cartão: desfaz a ação inteira (faturas, limite e gastos).
+    - Pagamento de dívida: desfaz junto o gasto e o saldo da dívida.
+    - Gasto/entrada comum: apaga.
+    Vale o que aconteceu por último entre o cartão e os registros comuns.
     """
     message = update.effective_message
     if message is None:
         return
     conn = _db(context)
-    last = transactions.last(conn)
+    card_action = cc.last_user_action(conn)
+    # Gastos de compras no cartão são desfeitos pela compra, não um a um.
+    last = transactions.last_excluding(conn, cc.card_transaction_ids(conn))
+    if card_action and _card_action_is_newer(conn, card_action, last):
+        await card_ops.undo_card_action(message, conn, card_action)
+        return
     if last is None:
         await message.reply_text("Não há nada para desfazer.")
         return
@@ -309,5 +351,5 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"Saldo voltou para {format_brl(debt.balance_cents)}."
         )
         return
-    t = transactions.delete_last(conn)
-    await message.reply_text(f"🗑️ Apagado: {describe(t)}")
+    transactions.delete(conn, last.id)
+    await message.reply_text(f"🗑️ Apagado: {describe(last)}")
