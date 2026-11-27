@@ -250,8 +250,17 @@ def run_strategy(
     balances = {d.name: d.balance_cents for d in debts if d.balance_cents > 0}
     budget = sum(d.payment_cents for d in debts if d.balance_cents > 0) + extra_cents
     payoff_month: dict[str, int] = {}
+    # Ordem REAL em que as dívidas zeram (dentro do mês também): quem a estratégia
+    # quitou primeiro aparece primeiro, mesmo que outra termine no mesmo mês.
+    order: list[str] = []
     total_interest = 0
     month = 0
+
+    def pay(name: str, amount: int) -> None:
+        balances[name] -= amount
+        if balances[name] == 0 and name not in payoff_month:
+            payoff_month[name] = month
+            order.append(name)
 
     while balances and month < max_months and budget > 0:
         month += 1
@@ -263,21 +272,19 @@ def run_strategy(
         available = budget
         for name in balances:
             paid = min(by_name[name].payment_cents, balances[name])
-            balances[name] -= paid
+            pay(name, paid)
             available -= paid
 
         for name in sorted(balances, key=_priority(strategy, balances, by_name)):
             if available <= 0:
                 break
             paid = min(available, balances[name])
-            balances[name] -= paid
+            pay(name, paid)
             available -= paid
 
         for name in [n for n, b in balances.items() if b == 0]:
-            payoff_month[name] = month
             del balances[name]
 
-    order = sorted(payoff_month, key=lambda n: (payoff_month[n], n))
     feasible = not balances
     return StrategyResult(
         strategy=strategy,

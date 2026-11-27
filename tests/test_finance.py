@@ -196,6 +196,17 @@ def test_comparar_avalanche_paga_menos_juros():
     assert avalanche.total_interest_cents < snowball.total_interest_cents
 
 
+def test_ordem_de_quitacao_no_mesmo_mes_segue_a_estrategia():
+    # "Z" (10% a.m.) e "A" (sem juros) terminam no mesmo mês, sem parcela fixa,
+    # com 200 de extra. Mês 1: Z vira 100 + 10 = 110; a avalanche paga Z primeiro
+    # (110), e a sobra de 90 quita A (50). Ordem real: Z, depois A (não alfabética).
+    debts = [f.DebtInput("A", 5_000, 0, 0), f.DebtInput("Z", 10_000, 100_000, 0)]
+    r = f.run_strategy(debts, "avalanche", extra_cents=20_000)
+    assert r.payoff_month == {"Z": 1, "A": 1}
+    assert r.payoff_order == ["Z", "A"]
+    assert r.total_interest_cents == 1_000
+
+
 def test_estrategia_inviavel():
     # Juros de 100/mês e orçamento de 50: nunca quita
     r = f.run_strategy([f.DebtInput("Z", 100_000, 100_000, 5_000)], "avalanche", max_months=36)
