@@ -22,6 +22,12 @@
 </div>
 {% else %}
 
+<details class="card quick-add">
+  <summary><strong>+ Registrar gasto ou entrada</strong></summary>
+  {% set back = "/" %}
+  {% include "_registrar.html" %}
+</details>
+
 <section class="tiles" aria-label="Resumo">
   {% for t in tiles %}
   <div class="tile {{ t.tone }}">
@@ -105,5 +111,6 @@
 {% if ready %}
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 <script src="/static/painel.js"></script>
+<script src="/static/forms.js"></script>
 {% endif %}
 {% endblock %}

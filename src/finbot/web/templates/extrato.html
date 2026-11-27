@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Extrato · finbot{% endblock %}
+{% block content %}
+<div class="month-head">
+  <a class="arrow" href="/extrato?mes={{ nav.prev }}" aria-label="Mês anterior">‹</a>
+  <h1>Extrato de {{ nav.label }}</h1>
+  {% if nav.next %}<a class="arrow" href="/extrato?mes={{ nav.next }}" aria-label="Mês seguinte">›</a>{% else %}<span class="arrow off">›</span>{% endif %}
+</div>
+
+<section class="tiles">
+  {% if s.start_cents is not none %}
+  <div class="tile"><div class="label">{{ s.start_label }}</div><div class="value">{{ brl(s.start_cents) }}</div></div>
+  {% endif %}
+  <div class="tile"><div class="label">Entra</div><div class="value">{{ brl(income_total) }}</div></div>
+  <div class="tile"><div class="label">Sai</div><div class="value">{{ brl(out_total) }}</div>
+    <div class="note">dívidas + faturas + gastos</div></div>
+</section>
+
+<section class="card">
+  {% if s.end_cents is not none %}
+  <div class="result-line"><span>Fim do mês</span><strong>{{ brl(s.end_cents) }}</strong></div>
+  <p class="hint" style="margin-top:0">Resultado só deste mês: {{ brl(s.result_cents) }}</p>
+  {% if o %}
+    {% if o.committed %}
+    <p class="hint">Contas {{ ("até o próximo dinheiro (" ~ o.next_income_day.strftime('%d/%m') ~ ")") if o.next_income_day else "no mês seguinte" }}: −{{ brl(o.committed_cents) }}
+      ({% for i in o.committed %}{{ i.label }} {{ i.day.strftime('%d/%m') }}{{ ', ' if not loop.last }}{% endfor %})</p>
+    {% endif %}
+    {% set until = ("até o próximo dinheiro (" ~ o.next_income_day.strftime('%d/%m') ~ ")") if o.next_income_day else "até o fim do mês seguinte" %}
+    {% if o.free_cents < 0 %}
+    <div class="alert critical">🚨 <strong>Faltam {{ brl(-o.free_cents) }}</strong> para pagar as contas {{ until }}.</div>
+    {% else %}
+    <div class="alert {{ 'warning' if o.free_cents < 30000 else 'ok' }}">{{ '⚠️' if o.free_cents < 30000 else '✅' }} <strong>Sobram {{ brl(o.free_cents) }}</strong> depois de pagar as contas {{ until }}.</div>
+    {% endif %}
+    <p class="hint">📉 Ponto mais baixo: {{ brl(o.low_cents) }} em {{ o.low_day.strftime('%d/%m') }}{% if not o.negative %} (não fica negativo até {{ o.until.strftime('%d/%m') }}){% endif %}.</p>
+  {% endif %}
+  {% else %}
+  <div class="result-line"><span>Resultado do mês (entra − sai)</span><strong class="{{ 'neg' if s.result_cents < 0 }}">{{ brl(s.result_cents) }}</strong></div>
+  {% if (s.year, s.month) >= (today.year, today.month) %}<p class="hint">Para ver quanto sobra de verdade, informe o saldo da conta no <a href="/">Painel</a>.</p>{% endif %}
+  {% endif %}
+</section>
+
+{% for g in groups %}
+{% if g["items"] or g.key != "gasto" %}
+<section class="card">
+  <h2 class="group-title"><span>{{ g.title }}</span><span>{{ brl(g.total) }}</span></h2>
+  {% if g["items"] %}
+  <ul class="list">
+    {% for i in g["items"] %}
+    <li>
+      <span class="when">{{ i.day.strftime('%d/%m') if i.day else '' }}</span>
+      <span class="what">{{ i.status }} {{ i.label }}{% if i.status == '⚠️' %} <small>venceu sem pagamento registrado</small>{% elif i.note %} <small>{{ i.note }}</small>{% endif %}</span>
+      <span class="amount {{ 'in' if g.key == 'entra' }}">{{ brl(i.amount_cents) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">Nada neste mês.</p>{% endif %}
+</section>
+{% endif %}
+{% endfor %}
+
+{% if s.undated_cards %}
+<div class="alert warning">⚠️ <strong>Cartões: {{ brl(s.undated_cents) }}</strong> de parcelas ainda sem mês definido
+  ({% for name, v in s.undated_cards %}{{ name }} {{ brl(v) }}{{ ' · ' if not loop.last }}{% endfor %}). As próximas faturas podem ser maiores.</div>
+{% endif %}
+{% for gr in s.growing %}
+<p class="hint">📈 {{ gr.name }}: {{ brl(gr.balance_cents) }} + {{ brl(gr.interest_cents) }} de juros neste mês (a dívida cresce; não sai da conta).</p>
+{% endfor %}
+<p class="hint">✅ feito · ⏳ previsto · ⚠️ atrasado</p>
+{% endblock %}

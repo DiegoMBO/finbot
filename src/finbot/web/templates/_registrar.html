@@ -1,0 +1,45 @@
+{# Formulário de registro: gasto, entrada ou compra no cartão. Usa as mesmas
+   funções do bot; dá para desfazer aqui ou com /desfazer. #}
+<form class="entry-form" method="post" action="/registrar" id="registrar">
+  <input type="hidden" name="voltar" value="{{ back }}">
+  <div class="seg" role="radiogroup" aria-label="Tipo">
+    <label><input type="radio" name="tipo" value="expense" checked> Gasto</label>
+    <label><input type="radio" name="tipo" value="income"> Entrada</label>
+  </div>
+  <div class="row">
+    <label class="field grow">Valor
+      <input type="text" name="valor" inputmode="decimal" placeholder="35,90" required>
+    </label>
+    <label class="field grow">Descrição
+      <input type="text" name="descricao" placeholder="mercado" maxlength="100">
+    </label>
+  </div>
+  <div class="row">
+    <label class="field grow">Categoria <small>(vazio = adivinha pela descrição)</small>
+      <input type="text" name="categoria" list="categorias" placeholder="alimentação">
+    </label>
+    <label class="field">Data
+      <input type="date" name="data" value="{{ today.isoformat() }}" max="{{ today.isoformat() }}">
+    </label>
+  </div>
+  <div class="row only-expense">
+    <label class="field grow">Pago com
+      <select name="cartao">
+        <option value="">Pix / débito / dinheiro</option>
+        {% for c in cards %}<option value="{{ c.id }}">Cartão {{ c.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field">Parcelas
+      <input type="number" name="parcelas" value="1" min="1" max="48" inputmode="numeric">
+    </label>
+  </div>
+  <datalist id="categorias">
+    {% for c in known_categories %}<option value="{{ c }}">{% endfor %}
+  </datalist>
+  <button class="primary" type="submit">Registrar</button>
+</form>
+<form method="post" action="/desfazer" class="undo-form">
+  <input type="hidden" name="voltar" value="{{ back }}">
+  <button type="submit" class="link">↩︎ Desfazer o último registro</button>
+  <span class="hint">(o mesmo que /desfazer no bot)</span>
+</form>

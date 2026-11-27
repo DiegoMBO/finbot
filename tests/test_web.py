@@ -186,3 +186,105 @@ def load_settings_tz():
     from zoneinfo import ZoneInfo
 
     return ZoneInfo("America/Sao_Paulo")
+
+
+# --- etapa 2: registrar, desfazer, Gastos e Extrato --------------------------------
+
+
+def post_entry(client, **fields):
+    data = {"tipo": "expense", "voltar": "/gastos", **fields}
+    return client.post("/registrar", data=data)
+
+
+def test_registrar_gasto_entrada_e_desfazer(env):
+    conn, client = env
+    login(client)
+    r = post_entry(client, valor="35,90", descricao="mercado")
+    # categoria adivinhada pela descrição, como no bot
+    assert "Gasto registrado: R$ 35,90 em alimentação (mercado)" in r.text
+    r = post_entry(client, tipo="income", valor="200", descricao="freela")
+    assert "Entrada registrada: R$ 200,00" in r.text
+    from finbot.services import transactions
+
+    assert [(t.kind, t.amount_cents) for t in transactions.list_all(conn)] == [
+        ("expense", 3_590),
+        ("income", 20_000),
+    ]
+    # Desfazer pelo app: a mesma regra do /desfazer (apaga a última, a entrada)
+    r = client.post("/desfazer", data={"voltar": "/gastos"})
+    assert "Apagado: R$ 200,00" in r.text
+    assert [t.amount_cents for t in transactions.list_all(conn)] == [3_590]
+
+
+def test_compra_parcelada_no_cartao_pelo_app(env):
+    conn, client = env
+    login(client)
+    card = cc.list_cards(conn)[0]
+    r = post_entry(client, valor="300", descricao="tênis", cartao=str(card.id), parcelas="3")
+    assert "Compra no Nubank (em 3x): R$ 300,00" in r.text
+    # 959.454 + 30.000 = 989.454 usado
+    assert cc.list_cards(conn)[0].used_cents == 989_454
+    # Comprado em 27/11 (fecha dia 3): 1ª parcela na fatura de dez
+    assert "Faturas: dez/2026, jan/2027, fev/2027" in r.text
+    r = client.post("/desfazer", data={"voltar": "/gastos"})
+    assert "Desfeito: compra de R$ 300,00 no Nubank" in r.text
+    assert cc.list_cards(conn)[0].used_cents == 959_454
+
+
+def test_erros_do_formulario(env):
+    _, client = env
+    login(client)
+    assert "Não registrei: valor inválido" in post_entry(client, valor="abc").text
+    assert "não pode ser no futuro" in post_entry(client, valor="10", data="2026-11-28").text
+    assert "parcelas: de 1 a 48" in post_entry(client, valor="10", cartao="1", parcelas="60").text
+
+
+def test_gasto_em_outro_dia_e_alerta_de_orcamento(env):
+    conn, client = env
+    from finbot.services import budgets, transactions
+
+    budgets.set_budget(conn, "alimentação", 5_000)  # R$ 50
+    login(client)
+    r = post_entry(client, valor="45", descricao="mercado", data="2026-11-20")
+    assert "em 20/11" in r.text
+    assert "90% do orçamento de alimentação" in r.text  # 45 de 50
+    [t] = transactions.list_all(conn)
+    assert t.created_at.astimezone(load_settings_tz()).date() == date(2026, 11, 20)
+
+
+def test_tela_de_gastos(env):
+    conn, client = env
+    login(client)
+    post_entry(client, valor="35,90", descricao="mercado")
+    post_entry(client, valor="20", descricao="uber")
+    html = client.get("/gastos").text
+    assert "Gastos de novembro/2026" in html
+    assert "R$ 55,90" in html  # total
+    d = views.spending(conn, 2026, 11, TODAY, load_settings_tz())
+    assert [(c["name"], c["cents"], c["pct"]) for c in d["categories"]] == [
+        ("alimentação", 3_590, 64),  # 35,90 / 55,90 = 64%
+        ("transporte", 2_000, 36),
+    ]
+    assert d["history"][-1] == {"month": "nov/2026", "expense": 5_590, "income": 0}
+    assert d["nav"]["next"] is None  # não vai para o futuro nos gastos
+
+
+def test_tela_do_extrato(env):
+    conn, client = env
+    cash.set_anchor(conn, 35_000, NOW)
+    login(client)
+    html = client.get("/extrato?mes=2026-12").text
+    assert "Extrato de dezembro/2026" in html
+    assert "Veio de novembro" in html and "R$ 2.762,78" in html
+    assert "fatura Nubank" in html and "R$ 2.092,84" in html
+    # 2.762,78 + 1.816,75 = 4.579,53 no fim de dezembro
+    assert "R$ 4.579,53" in html
+    assert client.get("/extrato?mes=lixo").status_code == 200  # mês inválido = mês atual
+
+
+def test_voltar_so_para_o_proprio_app(env):
+    _, client = env
+    login(client)
+    r = client.post("/registrar", data={"valor": "1", "voltar": "//site-malicioso.com"},
+                    follow_redirects=False)  # fmt: skip
+    assert r.headers["location"] == "/"

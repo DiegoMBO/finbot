@@ -308,29 +308,6 @@ async def on_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str |
     return None
 
 
-async def undo_card_action(message: Message, conn, action: cc.LastAction) -> None:
-    try:
-        r = cc.undo(conn, action)
-    except cc.UndoBlockedError as exc:
-        await message.reply_text(
-            f"A última ação foi no cartão {exc}, mas ele mudou depois disso (fatura informada, "
-            "rotativo ou ajuste). Desfazer agora bagunçaria as faturas. Corrija com /fatura ou "
-            "/editarcartao."
-        )
-        return
-    except ValueError as exc:
-        await message.reply_text(f"Não desfiz: {exc}.")
-        return
-    if r.kind == "compra":
-        months = ", ".join(month_short(m) for m in r.invoices)
-        text = f"🗑️ Desfeito: compra de {format_brl(r.amount_cents)} no {r.card.name}"
-        text += f" ({r.description})" if r.description else ""
-        text += f". Saiu das faturas: {months}."
-    else:
-        text = f"🗑️ Desfeito: pagamento de {format_brl(r.amount_cents)} no {r.card.name}."
-    await message.reply_text(f"{text}\nUsado agora: {format_brl(r.card.used_cents)}.")
-
-
 # --- tarefas agendadas -------------------------------------------------------
 
 

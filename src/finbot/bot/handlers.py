@@ -24,8 +24,7 @@ from finbot.parsing.budget import BudgetArgsError, parse_budget_args
 from finbot.parsing.message import ParseError, parse_message
 from finbot.parsing.period import PeriodError, month_label, parse_month
 from finbot.services import budgets, debts, export, transactions
-from finbot.services import credit_cards as cc
-from finbot.services import salary as salary_service
+from finbot.services import undo as undo_service
 from finbot.services.budgets import BudgetStatus
 from finbot.services.transactions import Transaction
 
@@ -347,20 +346,6 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
-def _card_action_is_newer(conn, action: cc.LastAction, last: Transaction | None) -> bool:
-    """A ação no cartão aconteceu depois do último gasto comum?
-
-    Os horários têm precisão de segundos; no empate, a compra decide pela ordem
-    de gravação dos gastos (id). Sem gasto para comparar (pagamento), vale o cartão.
-    """
-    if last is None or action.occurred_at > last.created_at:
-        return True
-    if action.occurred_at < last.created_at:
-        return False
-    ref = cc.action_last_transaction_id(conn, action)
-    return ref is None or ref > last.id
-
-
 async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/desfazer: apaga o registro mais recente.
 
@@ -372,56 +357,5 @@ async def undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None:
         return
-    conn = _db(context)
-    card_action = cc.last_user_action(conn)
-    # Gastos de compras no cartão são desfeitos pela compra, não um a um.
-    last = transactions.last_excluding(conn, cc.card_transaction_ids(conn))
-    # Hora extra registrada depois do último gasto/ação de cartão: apaga ela.
-    overtime = salary_service.last_overtime(conn)
-    if (
-        overtime
-        and (last is None or overtime[1] >= last.created_at)
-        and (card_action is None or overtime[1] >= card_action.occurred_at)
-    ):
-        entry = overtime[0]
-        salary_service.delete_overtime(conn, entry.id)
-        await message.reply_text(
-            f"🗑️ Apagado: {entry.minutes // 60}h{entry.minutes % 60:02d} extras de "
-            f"{entry.worked_on:%d/%m/%Y}."
-        )
-        return
-    if card_action and _card_action_is_newer(conn, card_action, last):
-        await card_ops.undo_card_action(message, conn, card_action)
-        return
-    if last is None:
-        await message.reply_text("Não há nada para desfazer.")
-        return
-    posted = salary_service.posted_by_transaction(conn, last.id)
-    if posted is not None:  # salário/13º/férias lançado pelo bot (+ consignado junto)
-        salary_service.undo_post(conn, posted, _settings(context).timezone)
-        await message.reply_text(
-            f"🗑️ Desfeito: {salary_service.KIND_LABEL[posted.kind]} ({posted.reference}), "
-            f"{format_brl(posted.net_cents)}"
-            + (" e o consignado junto." if posted.links else ".")
-            + "\nO bot não lança de novo sozinho."
-        )
-        return
-    try:
-        undone = debts.undo_payment(conn, last.id, _settings(context).timezone)
-    except debts.UndoBlockedError as exc:
-        await message.reply_text(
-            f"O último registro é um pagamento da dívida {exc.debt_name}, mas o saldo dela "
-            "mudou depois disso (correção com /saldo ou fatura nova). Desfazer agora "
-            "apagaria essa mudança.\n"
-            f"Corrija direto com /saldo {exc.debt_name} valor."
-        )
-        return
-    if undone is not None:
-        debt, event = undone
-        await message.reply_text(
-            f"🗑️ Apagado: pagamento de {format_brl(event.amount_cents)} em {debt.name}.\n"
-            f"Saldo voltou para {format_brl(debt.balance_cents)}."
-        )
-        return
-    transactions.delete(conn, last.id)
-    await message.reply_text(f"🗑️ Apagado: {describe(last)}")
+    # A regra fica em services/undo.py: o app web usa a mesma.
+    await message.reply_text(undo_service.undo_last(_db(context), _settings(context).timezone))

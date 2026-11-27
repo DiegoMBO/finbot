@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Gastos · finbot{% endblock %}
+{% block content %}
+<div class="month-head">
+  <a class="arrow" href="/gastos?mes={{ nav.prev }}" aria-label="Mês anterior">‹</a>
+  <h1>Gastos de {{ nav.label }}</h1>
+  {% if nav.next %}<a class="arrow" href="/gastos?mes={{ nav.next }}" aria-label="Mês seguinte">›</a>{% else %}<span class="arrow off">›</span>{% endif %}
+</div>
+
+{% if flash %}<div class="alert ok" role="status" style="white-space:pre-line">{{ flash }}</div>{% endif %}
+
+<section class="tiles">
+  <div class="tile"><div class="label">Gastos</div><div class="value">{{ brl(summary.expense_cents) }}</div></div>
+  <div class="tile"><div class="label">Entradas</div><div class="value">{{ brl(summary.income_cents) }}</div></div>
+  {# No mês atual o salário ainda pode não ter caído: sem vermelho para não assustar à toa. #}
+  <div class="tile {{ '' if nav.current else ('critical' if summary.balance_cents < 0 else 'good') }}">
+    <div class="label">Saldo do mês</div><div class="value">{{ brl(summary.balance_cents) }}</div>
+    <div class="note">entradas − gastos registrados{% if nav.current %} · o salário entra quando cai{% endif %}</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Registrar</h2>
+  {% set back = "/gastos" if nav.current else request.url.path ~ "?" ~ request.url.query %}
+  {% include "_registrar.html" %}
+</section>
+
+<div class="cols">
+  <section class="card">
+    <h2>Por categoria</h2>
+    {% if categories %}
+    <div id="cat-chart" class="bar-chart" style="height: {{ 40 + categories|length * 34 }}px" role="img" aria-label="Gastos por categoria"></div>
+    <details><summary>Ver em tabela</summary>
+      <table><tbody>
+      {% for c in categories %}<tr><td>{{ c.name }}</td><td class="num">{{ brl(c.cents) }}</td><td class="num">{{ c.pct }}%</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+    {% else %}<p class="empty">Nenhum gasto registrado neste mês.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Gastos nos últimos 6 meses</h2>
+    <div id="hist-chart" class="bar-chart" style="height: 240px" role="img" aria-label="Gastos por mês"></div>
+    <details><summary>Ver em tabela</summary>
+      <table><thead><tr><th>Mês</th><th class="num">Gastos</th><th class="num">Entradas</th></tr></thead><tbody>
+      {% for h in history %}<tr><td>{{ h.month }}</td><td class="num">{{ brl(h.expense) }}</td><td class="num">{{ brl(h.income) }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <h2>Orçamentos</h2>
+  {% if budgets %}
+  <ul class="list">
+    {% for b in budgets %}
+    <li class="budget">
+      <span class="what">{{ b.category }}
+        <span class="meter" aria-hidden="true"><span class="{{ 'critical' if b.pct >= 100 else ('warning' if b.pct >= 80 else 'good') }}" style="width: {{ [b.pct, 100]|min }}%"></span></span>
+        <small>{{ brl(b.spent) }} de {{ brl(b.limit) }} · {% if b.remaining >= 0 %}restam {{ brl(b.remaining) }}{% else %}passou {{ brl(-b.remaining) }}{% endif %}</small>
+      </span>
+      <span class="amount">{{ b.pct }}%{{ ' 🚨' if b.pct >= 100 else (' ⚠️' if b.pct >= 80 else '') }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">Nenhum orçamento. Crie no bot: <code>/orcamento alimentação 800</code></p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Registros do mês</h2>
+  {% if records %}
+  <ul class="list">
+    {% for r in records %}
+    <li>
+      <span class="when">{{ r.day.strftime('%d/%m') }}</span>
+      <span class="what">{{ r.category }}{% if r.description %} · {{ r.description }}{% endif %}{% if r.origin %} <small>{{ r.origin }}</small>{% endif %}</span>
+      <span class="amount {{ 'in' if r.kind == 'income' }}">{{ ('+' if r.kind == 'income' else '−') ~ brl(r.cents) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">Nenhum registro neste mês.</p>{% endif %}
+</section>
+
+<script type="application/json" id="gastos-data">{{ {"categories": categories, "history": history} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/forms.js"></script>
+<script src="/static/gastos.js"></script>
+{% endblock %}

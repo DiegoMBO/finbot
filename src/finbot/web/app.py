@@ -4,6 +4,10 @@ Rotas:
   GET  /login, POST /login, POST /sair   entrar e sair
   GET  /                                 Painel
   POST /saldo                            atualiza o saldo da conta (= /extrato inicial)
+  GET  /extrato?mes=AAAA-MM              entra − dívidas − faturas − gastos (= /extrato)
+  GET  /gastos?mes=AAAA-MM               gastos do mês, gráficos, orçamentos, registros
+  POST /registrar                        gasto, entrada ou compra no cartão
+  POST /desfazer                         desfaz o último registro (= /desfazer)
   GET  /api/saldo-diario                 dados do gráfico (JSON)
 
 "Handlers finos", como no bot: cada rota só lê o pedido, chama services/ ou
@@ -29,8 +33,8 @@ from finbot import db
 from finbot.bot.cash import parse_signed_amount
 from finbot.config import Settings
 from finbot.money import AmountError
-from finbot.services import cash
-from finbot.web import views
+from finbot.services import cash, undo
+from finbot.web import entries, views
 from finbot.web.config import WebSettings
 from finbot.web.security import LoginThrottle, secret_key, verify_password
 
@@ -42,6 +46,13 @@ SESSION_DAYS = 30
 
 class LoginRequired(Exception):
     pass
+
+
+def _safe_back(path: str) -> str:
+    """Só volta para páginas do próprio app (evita redirecionar para outro site)."""
+    if path.startswith("/") and not path.startswith("//") and "\\" not in path:
+        return path
+    return "/"
 
 
 def create_app(settings: Settings, web: WebSettings, clock=None) -> FastAPI:
@@ -136,6 +147,55 @@ def create_app(settings: Settings, web: WebSettings, clock=None) -> FastAPI:
         cash.set_anchor(conn, amount, now_fn())
         request.session["flash"] = f"Saldo da conta atualizado: {views.brl(amount)}"
         return RedirectResponse("/", status_code=303)
+
+    @app.get("/gastos", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def spending_page(
+        request: Request, mes: str | None = None, conn: sqlite3.Connection = Depends(get_conn)
+    ):
+        y, m = views.parse_month_key(mes, today())
+        data = views.spending(conn, y, m, today(), settings.timezone)
+        flash = request.session.pop("flash", None)
+        return templates.TemplateResponse(
+            request, "gastos.html", {**data, "flash": flash, "page": "gastos"}
+        )
+
+    @app.get("/extrato", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def statement_page(
+        request: Request, mes: str | None = None, conn: sqlite3.Connection = Depends(get_conn)
+    ):
+        y, m = views.parse_month_key(mes, today())
+        data = views.statement_page(conn, y, m, today(), settings.timezone, settings.extra_holidays)
+        return templates.TemplateResponse(request, "extrato.html", {**data, "page": "extrato"})
+
+    @app.post("/registrar", dependencies=[Depends(require_login)])
+    def register(
+        request: Request,
+        tipo: str = Form("expense"),
+        valor: str = Form(""),
+        descricao: str = Form(""),
+        categoria: str = Form(""),
+        cartao: str = Form(""),
+        parcelas: str = Form("1"),
+        data: str = Form(""),
+        voltar: str = Form("/gastos"),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        form = entries.EntryForm(tipo, valor, descricao, categoria, cartao, parcelas, data)
+        try:
+            request.session["flash"] = entries.register(conn, form, now_fn(), settings.timezone)
+        except entries.EntryError as exc:
+            request.session["flash"] = f"Não registrei: {exc}."
+        return RedirectResponse(_safe_back(voltar), status_code=303)
+
+    @app.post("/desfazer", dependencies=[Depends(require_login)])
+    def undo_last(
+        request: Request,
+        voltar: str = Form("/gastos"),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        # A mesma regra do /desfazer do bot (services/undo.py).
+        request.session["flash"] = undo.undo_last(conn, settings.timezone)
+        return RedirectResponse(_safe_back(voltar), status_code=303)
 
     @app.get("/api/saldo-diario", dependencies=[Depends(require_login)])
     def api_daily(conn: sqlite3.Connection = Depends(get_conn)):

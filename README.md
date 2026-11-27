@@ -190,11 +190,24 @@ As mesmas contas do bot, em telas com gráficos, no PC e no celular. O app e o
 bot usam o **mesmo banco** (`data\finbot.db`, em modo WAL, que deixa os dois
 lerem e gravarem ao mesmo tempo): o que você registra num aparece no outro.
 
-**Telas:** Painel (pronto); Extrato, Gastos, Dívidas, Cartões e Salário (próximas
-etapas). O Painel mostra o que tem na conta hoje, quanto falta ou sobra até o
-próximo dinheiro, o ponto mais baixo e o **gráfico do saldo dia a dia** dos
-próximos 90 dias (toque num dia para ver o que acontece nele; os dias negativos
-ficam em vermelho), além das próximas saídas e entradas.
+**Telas prontas:**
+
+- **Painel:** o que tem na conta hoje, quanto falta ou sobra até o próximo
+  dinheiro, o ponto mais baixo e o **gráfico do saldo dia a dia** dos próximos 90
+  dias (toque num dia para ver o que acontece nele; os dias negativos ficam em
+  vermelho), além das próximas saídas e entradas e um atalho para registrar.
+- **Extrato:** o `/extrato` em tela, mês a mês (setas ‹ ›), com o "Faltam/Sobram"
+  e o ponto mais baixo.
+- **Gastos:** totais do mês, gráfico por categoria, gastos dos últimos 6 meses,
+  orçamentos com barra de uso e a lista de registros.
+
+**Registrar pelo app:** gasto, entrada ou compra no cartão (à vista ou em
+parcelas), com data (até hoje). Categoria vazia = o bot adivinha pela descrição,
+como no texto livre. "Desfazer o último registro" segue a mesma regra do
+`/desfazer` (as duas usam `services/undo.py`): o que você registra no app pode
+ser desfeito no bot, e vice-versa.
+
+Próximas telas: Dívidas (com simulador), Cartões e Salário.
 
 ### 1. Criar a senha
 

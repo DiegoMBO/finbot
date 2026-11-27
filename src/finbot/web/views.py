@@ -106,7 +106,10 @@ def dashboard(conn: sqlite3.Connection, today: date, tz: ZoneInfo, extra=()) -> 
         {"day": p.day, **_item_json(i)} for p in points for i in p.items if i.group == cash.INCOME
     ][:5]
     s = cash.statement(conn, today.year, today.month, today, tz, extra)
+    form = spending(conn, today.year, today.month, today, tz)
     return {
+        "known_categories": form["known_categories"],
+        "cards": form["cards"],
         "ready": True,
         "today": today,
         "anchor": anchor,
@@ -132,3 +135,154 @@ def _negative_ranges(points: list[cash.DayPoint]) -> list[tuple[date, date]]:
     if start is not None:
         ranges.append((start, points[-1].day))
     return ranges
+
+
+# --- Gastos ------------------------------------------------------------------------
+
+
+def _month_key(year: int, month: int) -> str:
+    return f"{year}-{month:02d}"
+
+
+def _short_month(year: int, month: int) -> str:
+    from finbot.parsing.period import MONTH_NAMES
+
+    return f"{MONTH_NAMES[month - 1][:3]}/{year}"
+
+
+def month_nav(year: int, month: int, today: date, max_ahead: int = 0) -> dict:
+    """Mês anterior/seguinte para as setas (sem passar de `max_ahead` meses à frente)."""
+    from finbot.parsing.period import month_label
+    from finbot.services.finance import add_months
+
+    prev = add_months(year, month, -1)
+    nxt = add_months(year, month, 1)
+    limit = add_months(today.year, today.month, max_ahead)
+    return {
+        "label": month_label(year, month),
+        "prev": _month_key(*prev),
+        "next": _month_key(*nxt) if nxt <= limit else None,
+        "current": (year, month) == (today.year, today.month),
+    }
+
+
+def parse_month_key(raw: str | None, today: date) -> tuple[int, int]:
+    """'2026-12' -> (2026, 12); vazio ou inválido -> mês atual."""
+    try:
+        year, month = (int(x) for x in (raw or "").split("-"))
+        if 1 <= month <= 12 and 2000 <= year <= 2100:
+            return year, month
+    except ValueError:
+        pass
+    return today.year, today.month
+
+
+def spending(conn: sqlite3.Connection, year: int, month: int, today: date, tz: ZoneInfo) -> dict:
+    """Tela de Gastos: totais, por categoria, últimos 6 meses, orçamentos e registros."""
+    from finbot.parsing.categories import EXPENSE_KEYWORDS
+    from finbot.services import budgets, transactions
+    from finbot.services import credit_cards as cc
+    from finbot.services.finance import add_months
+
+    start, end = transactions.month_bounds(year, month, tz)
+    items = transactions.list_between(conn, start, end)
+    summary = transactions.summarize(items)
+    card_tx = cc.card_transaction_ids(conn)
+    payroll_tx = {
+        r["transaction_id"]
+        for r in conn.execute("SELECT transaction_id FROM payroll_payments")
+        if r["transaction_id"]
+    }
+    categories = [
+        {"name": name, "cents": cents, "pct": round(100 * cents / summary.expense_cents)}
+        for name, cents in summary.expenses_by_category.items()
+    ]
+    history = []
+    for k in range(5, -1, -1):
+        y, m = add_months(year, month, -k)
+        s, e = transactions.month_bounds(y, m, tz)
+        summ = transactions.summarize(transactions.list_between(conn, s, e))
+        history.append(
+            {
+                "month": _short_month(y, m),
+                "expense": summ.expense_cents,
+                "income": summ.income_cents,
+            }
+        )
+    records = []
+    for t in reversed(items):
+        if t.id in card_tx:
+            origin = "cartão"
+        elif t.id in payroll_tx:
+            origin = "salário (lançado pelo bot)"
+        elif t.category == "dívidas":
+            origin = "pagamento de dívida"
+        else:
+            origin = ""
+        records.append(
+            {
+                "day": t.created_at.astimezone(tz).date(),
+                "kind": t.kind,
+                "category": t.category,
+                "description": t.description,
+                "cents": t.amount_cents,
+                "origin": origin,
+            }
+        )
+    statuses = budgets.statuses(budgets.list_budgets(conn), items)
+    known = sorted(
+        set(EXPENSE_KEYWORDS)
+        | {r["category"] for r in conn.execute("SELECT DISTINCT category FROM transactions")}
+    )
+    return {
+        "nav": month_nav(year, month, today),
+        "summary": summary,
+        "categories": categories,
+        "history": history,
+        "records": records,
+        "budgets": [
+            {
+                "category": s.category,
+                "spent": s.spent_cents,
+                "limit": s.limit_cents,
+                "pct": s.percent,
+                "remaining": s.remaining_cents,
+            }
+            for s in statuses
+        ],  # fmt: skip
+        "known_categories": known,
+        "cards": [{"id": c.id, "name": c.name} for c in cc.list_cards(conn)],
+        "today": today,
+    }
+
+
+# --- Extrato -------------------------------------------------------------------------
+
+
+GROUP_TITLES = {
+    cash.INCOME: "💰 Entra",
+    cash.DEBT: "💸 Dívidas",
+    cash.INVOICE: "💳 Faturas",
+    cash.EXPENSE: "🛒 Gastos registrados (fora do cartão)",
+}
+
+
+def statement_page(
+    conn: sqlite3.Connection, year: int, month: int, today: date, tz: ZoneInfo, extra=()
+) -> dict:
+    s = cash.statement(conn, year, month, today, tz, extra)
+    o = cash.outlook(conn, year, month, today, tz, extra)
+    groups = []
+    for group, title in GROUP_TITLES.items():
+        rows = [i for i in s.items if i.group == group]
+        groups.append({"key": group, "title": title, "total": s.total(group), "items": rows})
+    out_total = s.total(cash.DEBT) + s.total(cash.INVOICE) + s.total(cash.EXPENSE)
+    return {
+        "nav": month_nav(year, month, today, cash.MAX_MONTHS_AHEAD),
+        "s": s,
+        "o": o,
+        "groups": groups,
+        "income_total": s.total(cash.INCOME),
+        "out_total": out_total,
+        "today": today,
+    }
