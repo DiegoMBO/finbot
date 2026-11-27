@@ -57,6 +57,8 @@ ao seu chat.
 | `/dividas` · `/divida nome` | Resumo de todas · detalhes e histórico de uma |
 | `/editardivida nome` | Muda taxa, parcela, vencimento e outros dados |
 | `/saldo nome valor` | Corrige o saldo pelo valor do app do banco |
+| `/extrato [mês]` | Entra − dívidas − faturas − gastos = saldo do mês (`/extrato próximo`, `/extrato jan`) |
+| `/extrato inicial valor` | Quanto você tem na conta agora (ponto de partida do `/extrato`) |
 | `/removerdivida nome` | Apaga uma dívida (pede confirmação) |
 | `/simular nome extra` | Quanto tempo e juros um extra mensal economiza |
 | `/estrategia [extra]` | Avalanche × bola de neve (com as faturas e o rotativo dos cartões) |
@@ -375,6 +377,30 @@ são estimativas: o holerite da empresa sempre prevalece.
   transporte, contas; ex.: `/estrategia sobra 1500`). O caixa é acumulado: o
   salário do dia 30 paga o mês seguinte, e se faltar dinheiro num mês o déficit
   passa para o próximo (e o bot avisa do risco de cair no rotativo).
+
+### Extrato do mês (`/extrato`)
+
+A conta direta do mês: **o que entra − dívidas − faturas − gastos = saldo**.
+
+1. Informe quanto tem na conta agora: `/extrato inicial 350` (negativo:
+   `/extrato inicial -120`). Tudo o que aconteceu antes já está nesse valor.
+2. `/extrato` mostra o mês atual; `/extrato próximo`, `/extrato jan` mostram os
+   seguintes (até 12 meses). O fim de um mês é o começo do outro.
+
+Cada linha tem a situação: ✅ feito (registrado depois do saldo inicial), ⏳
+previsto, ⚠️ venceu e não foi registrado (conta como a pagar).
+
+- **Entra:** salário, adiantamento, 13º e férias previstos ou lançados, e as
+  entradas que você registrar.
+- **Dívidas:** a parcela de cada dívida no dia do vencimento (some quando a
+  dívida acaba). O consignado aparece como "descontado no salário", e o salário,
+  antes desse desconto.
+- **Faturas:** o valor inteiro de cada fatura que vence no mês (parcelas antigas
+  e compras novas).
+- **Gastos:** o que você registrar fora do cartão. Compras no cartão não contam
+  duas vezes: já estão na fatura.
+- **Dívida sem parcela** (cheque especial): os juros aumentam a dívida, mas não
+  saem da conta; aparece como aviso no fim, fora da conta.
 
 ### Pagamento quinzenal
 

@@ -15,6 +15,7 @@ from finbot.bot import (
     card_ops,
     card_setup,
     card_views,
+    cash,
     chart,
     debt_edit,
     debts,
@@ -91,6 +92,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("estrategia", strategy.strategy_command))
     app.add_handler(CommandHandler("semcartao", strategy.no_card_command))
     app.add_handler(CommandHandler("saude", health.health_command))
+    app.add_handler(CommandHandler("extrato", cash.balance_command))
     app.add_handler(CommandHandler("grafico", chart.chart_command))
     app.add_handler(CommandHandler("lembretes", reminders.reminders_command))
     app.add_handler(CallbackQueryHandler(handlers.payment_choice, pattern=f"^{payments.CB}"))

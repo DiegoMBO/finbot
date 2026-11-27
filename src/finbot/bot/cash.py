@@ -1,0 +1,181 @@
+"""/extrato: extrato do mês (entra − dívidas − faturas − gastos = saldo).
+
+/extrato                  mês atual
+/extrato dez | próximo    outro mês (até 12 meses à frente)
+/extrato inicial 350      quanto você tem na conta agora (pode ser negativo: -120)
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import UTC, date, datetime
+
+from telegram import Update
+from telegram.ext import ContextTypes
+
+from finbot.config import Settings
+from finbot.money import AmountError, format_brl, parse_amount
+from finbot.parsing.period import MONTH_NAMES, month_label
+from finbot.parsing.text import normalize
+from finbot.services import cash, finance
+from finbot.services.cash import DEBT, DONE, EXPENSE, INCOME, INVOICE, LATE, Statement
+
+USAGE = (
+    "Use: /extrato (mês atual), /extrato dez ou /extrato próximo (outro mês), "
+    "/extrato inicial 350 (quanto tem na conta agora; negativo: /extrato inicial -120)"
+)
+
+GROUPS = (
+    (INCOME, "💰 Entra"),
+    (DEBT, "💸 Dívidas"),
+    (INVOICE, "💳 Faturas"),
+    (EXPENSE, "🛒 Gastos registrados (fora do cartão)"),
+)
+
+
+class MonthArgError(ValueError):
+    pass
+
+
+def parse_target(arg: str, today: date) -> tuple[int, int]:
+    """'dez', 'dezembro', '12', '12/2026', 'próximo', 'anterior' -> (ano, mês).
+    Sem ano, o mês é o próximo com esse número (em novembro, 'jan' = janeiro seguinte)."""
+    norm = normalize(arg).strip()
+    if norm in ("proximo", "seguinte"):
+        return finance.add_months(today.year, today.month, 1)
+    if norm == "anterior":
+        return finance.add_months(today.year, today.month, -1)
+    if norm in ("atual", "este", "hoje"):
+        return today.year, today.month
+    year = None
+    match = re.fullmatch(r"(\d{1,2})(?:/(\d{2}|\d{4}))?", norm)
+    if match:
+        month = int(match.group(1))
+        if match.group(2):
+            year = int(match.group(2))
+            year += 2000 if year < 100 else 0
+    else:
+        names = [normalize(n)[:3] for n in MONTH_NAMES]
+        if norm[:3] not in names:
+            raise MonthArgError(f"não entendi o mês {arg!r}")
+        month = names.index(norm[:3]) + 1
+    if not 1 <= month <= 12:
+        raise MonthArgError(f"mês {month} não existe")
+    if year is None:
+        year = today.year if month >= today.month else today.year + 1
+    return year, month
+
+
+def parse_signed_amount(text: str) -> int:
+    raw = text.strip().replace("−", "-")
+    sign = -1 if raw.startswith("-") else 1
+    raw = raw.lstrip("-+ ").strip()
+    if raw in ("0", "0,00", "0.00"):
+        return 0
+    return sign * parse_amount(raw)
+
+
+def _signed(cents: int) -> str:
+    return f"−{format_brl(-cents)}" if cents < 0 else format_brl(cents)
+
+
+def _item_line(i: cash.Item) -> str:
+    day = f"{i.day:%d/%m} " if i.day else ""
+    note = f" ({i.note})" if i.note else ""
+    late = " — venceu sem pagamento registrado" if i.status == LATE else ""
+    return f"   {i.status} {day}{i.label}: {format_brl(i.amount_cents)}{note}{late}"
+
+
+def format_statement(s: Statement, today: date) -> str:
+    title = month_label(s.year, s.month)
+    lines = [f"📒 {title[0].upper()}{title[1:]}"]
+    if s.start_cents is not None:
+        lines.append(f"{s.start_label}: {_signed(s.start_cents)}")
+    for group, name in GROUPS:
+        items = sorted(
+            (i for i in s.items if i.group == group), key=lambda i: (i.day is None, i.day or today)
+        )
+        lines += ["", f"{name}: {format_brl(s.total(group))}"]
+        if group == EXPENSE and not items:
+            lines.append("   nenhum ainda: comida, contas e compras que você registrar saem daqui")
+            continue
+        lines += [_item_line(i) for i in items] or ["   nada neste mês"]
+
+    lines.append("")
+    if s.end_cents is not None:
+        icon = "🚨" if s.end_cents < 0 else "✅"
+        lines.append(f"= Fim do mês: {_signed(s.end_cents)} {icon}")
+        lines.append(f"   (resultado só deste mês: {_signed(s.result_cents)})")
+        if s.end_cents < 0:
+            lines.append(
+                f"🚨 Faltam {format_brl(-s.end_cents)}: sem esse dinheiro, a conta fica no "
+                "negativo (cheque especial) ou uma fatura vai para o rotativo."
+            )
+    else:
+        icon = "🚨" if s.result_cents < 0 else "✅"
+        lines.append(f"= Resultado do mês (entra − sai): {_signed(s.result_cents)} {icon}")
+        if (s.year, s.month) >= (today.year, today.month):
+            lines.append("Para ver quanto sobra de verdade, informe o que tem na conta:")
+            lines.append("/extrato inicial 350")
+
+    if s.growing:
+        lines += ["", "📈 Sem parcela (os juros aumentam a dívida, não saem da conta):"]
+        for g in s.growing:
+            lines.append(
+                f"   {g.name}: {format_brl(g.balance_cents)} + {format_brl(g.interest_cents)} "
+                "de juros neste mês"
+            )
+
+    has_late = any(i.status == LATE for i in s.items)
+    legend = f"{DONE} feito · ⏳ previsto" + (f" · {LATE} atrasado" if has_late else "")
+    lines += ["", legend, "Outro mês: /extrato próximo · /extrato jan"]
+    return "\n".join(lines)
+
+
+async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    settings: Settings = context.bot_data["settings"]
+    conn = context.bot_data["db"]
+    tz = settings.timezone
+    now = datetime.now(UTC)
+    today = now.astimezone(tz).date()
+    args = list(context.args or [])
+
+    if args and normalize(args[0]) == "inicial":
+        if len(args) == 1:
+            anchor = cash.get_anchor(conn)
+            if anchor is None:
+                await message.reply_text(
+                    "Informe quanto tem na conta agora. Ex.: /extrato inicial 350 "
+                    "(negativo: /extrato inicial -120)"
+                )
+            else:
+                when = anchor.informed_at.astimezone(tz)
+                await message.reply_text(
+                    f"Saldo inicial: {_signed(anchor.amount_cents)}, informado em "
+                    f"{when:%d/%m/%Y %H:%M}. Para atualizar: /extrato inicial 350"
+                )
+            return
+        try:
+            amount = parse_signed_amount(" ".join(args[1:]))
+        except AmountError:
+            await message.reply_text("Não entendi o valor. Ex.: /extrato inicial 350")
+            return
+        cash.set_anchor(conn, amount, now)
+        s = cash.statement(conn, today.year, today.month, today, tz, settings.extra_holidays)
+        await message.reply_text(
+            f"✅ Saldo inicial: {_signed(amount)} (agora). Tudo o que você registrar a "
+            "partir de agora mexe nesse saldo.\n\n" + format_statement(s, today)
+        )
+        return
+
+    try:
+        year, month = parse_target(" ".join(args), today) if args else (today.year, today.month)
+    except MonthArgError as exc:
+        await message.reply_text(f"{exc}. {USAGE}")
+        return
+    if cash.months_between((today.year, today.month), (year, month)) > cash.MAX_MONTHS_AHEAD:
+        await message.reply_text(f"Consigo prever até {cash.MAX_MONTHS_AHEAD} meses à frente.")
+        return
+    s = cash.statement(conn, year, month, today, tz, settings.extra_holidays)
+    await message.reply_text(format_statement(s, today))

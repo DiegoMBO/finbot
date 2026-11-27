@@ -42,6 +42,9 @@ HELP_TEXT = (
     "Comandos:\n"
     "/hoje: gastos do dia\n"
     "/mes: resumo do mês (ou /mes 10/2025 para outro mês)\n"
+    "/extrato: o que entra − dívidas − faturas − gastos = saldo do mês "
+    "(/extrato próximo, /extrato jan)\n"
+    "/extrato inicial 350: informa quanto tem na conta agora (ponto de partida)\n"
     "/desfazer: apaga o último registro\n"
     "/orcamento: mostra os orçamentos do mês\n"
     "/orcamento categoria valor: define limite mensal\n"
@@ -102,7 +105,7 @@ def describe(t: Transaction) -> str:
 
 # Todos os comandos do bot (um teste confere que bate com os registrados em app.py).
 KNOWN_COMMANDS = (
-    "start", "ajuda", "help", "hoje", "mes", "desfazer", "orcamento", "exportar",
+    "start", "ajuda", "help", "hoje", "mes", "extrato", "desfazer", "orcamento", "exportar",
     "novadivida", "editardivida", "dividas", "divida", "removerdivida", "pagar", "saldo",
     "simular", "estrategia", "semcartao", "saude", "grafico", "lembretes", "cancelar",
     "novocartao", "editarcartao", "cartoes", "cartao", "fatura", "parcelado", "estorno",
