@@ -1,9 +1,15 @@
-"""Ponto de entrada. Rode com:  python -m finbot"""
+"""Ponto de entrada. Rode com:  python -m finbot
+
+Sem janela (pythonw.exe, usado pelo Agendador de Tarefas do Windows) não existe
+terminal: o log vai só para o arquivo data/finbot.log.
+"""
 
 from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from telegram import Update
 from telegram.error import InvalidToken, NetworkError
@@ -11,12 +17,27 @@ from telegram.error import InvalidToken, NetworkError
 from finbot.bot.app import build_application
 from finbot.config import ConfigError, load_settings
 
+LOG_FILE = Path("data") / "finbot.log"  # relativo à pasta do projeto
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+logger = logging.getLogger(__name__)
+
+
+def has_console() -> bool:
+    """False quando roda com pythonw.exe (sem janela): sys.stderr é None."""
+    return sys.stderr is not None
+
 
 def configure_logging() -> None:
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        level=logging.INFO,
+    handlers: list[logging.Handler] = []
+    if has_console():
+        handlers.append(logging.StreamHandler())
+    # Arquivo sempre: até 3 arquivos de 1 MB (finbot.log, .1, .2); o mais velho some.
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    handlers.append(
+        RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
     )
+    logging.basicConfig(format=LOG_FORMAT, level=logging.INFO, handlers=handlers, force=True)
     # IMPORTANTE: o httpx (cliente HTTP usado pela biblioteca) registra em nível
     # INFO a URL de cada requisição, e a URL da API do Telegram contém o TOKEN.
     # Subimos o nível para WARNING para o token não aparecer no terminal/logs.
@@ -48,14 +69,20 @@ class RedactSecretFilter(logging.Filter):
         return True  # True = a linha continua sendo registrada
 
 
+def fail(message: str) -> None:
+    """Erro fatal: mensagem curta (no terminal e no log) e saída com código 1."""
+    logger.error(message)
+    if has_console():
+        print(message, file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> None:
     configure_logging()
     try:
         settings = load_settings()
     except ConfigError as exc:
-        # Erro de configuração: mensagem curta e saída com código 1, sem traceback.
-        print(f"Erro de configuração: {exc}", file=sys.stderr)
-        sys.exit(1)
+        fail(f"Erro de configuração: {exc}")
 
     # Filtros no HANDLER (e não no logger) valem para as mensagens de todos os
     # módulos, inclusive as da biblioteca, que sobem até o logger raiz.
@@ -63,27 +90,26 @@ def main() -> None:
         handler.addFilter(RedactSecretFilter(settings.telegram_token))
 
     app = build_application(settings)
-    logging.getLogger(__name__).info("Conectando ao Telegram... (Ctrl+C para parar)")
+    logger.info("Conectando ao Telegram... (Ctrl+C para parar)")
 
+    # Se a conexão inicial falhar (rede instável), tenta de novo em vez de desistir.
+    # Sem janela (iniciado pelo Windows ao entrar), a internet pode demorar a subir:
+    # aí tenta para sempre. No terminal, 5 tentativas e mostra o erro.
+    retries = 5 if has_console() else -1
     try:
         # Long polling: o bot pergunta ao Telegram de tempos em tempos se há
         # mensagens novas. Não precisa de servidor público nem HTTPS, ideal para
-        # rodar no seu computador. (A alternativa, webhook, fica para o deploy.)
-        # bootstrap_retries: se a conexão inicial falhar (rede instável), tenta
-        # de novo até 5 vezes em vez de desistir na primeira.
-        app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=5)
+        # rodar no seu computador.
+        app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=retries)
     except InvalidToken:
-        print("Erro: o Telegram recusou o TELEGRAM_TOKEN. Confira o .env.", file=sys.stderr)
-        sys.exit(1)
+        fail("Erro: o Telegram recusou o TELEGRAM_TOKEN. Confira o .env.")
     except NetworkError as exc:
         # TimedOut é um tipo de NetworkError. Depois das novas tentativas, não
         # adianta mostrar 100 linhas de traceback: o problema é a conexão.
-        print(
+        fail(
             f"Erro de rede ao falar com o Telegram ({exc}). "
-            "Verifique sua internet/firewall/VPN e tente de novo.",
-            file=sys.stderr,
+            "Verifique sua internet/firewall/VPN e tente de novo."
         )
-        sys.exit(1)
 
 
 if __name__ == "__main__":

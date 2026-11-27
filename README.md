@@ -19,6 +19,7 @@ ao seu chat.
 - [Instalação](#instalação)
 - [Configuração](#configuração)
 - [Executar](#executar)
+- [Ligar sozinho no Windows](#ligar-sozinho-no-windows-sem-janela)
 - [Hospedar num servidor](#hospedar-num-servidor-24-horas-grátis)
 - [Como usar](#como-usar)
 - [Cartões de crédito](#cartões-de-crédito)
@@ -134,6 +135,44 @@ Rode a partir da pasta do projeto (é de lá que o `.env` é lido). Quando apare
 - O bot só funciona **enquanto o terminal estiver aberto**. `Ctrl+C` para parar.
 - Depois de mudar o código, pare e rode de novo (ele não recarrega sozinho).
 - Não rode duas cópias ao mesmo tempo (dá erro `Conflict`).
+
+## Ligar sozinho no Windows (sem janela)
+
+O Agendador de Tarefas do Windows pode iniciar o bot em segundo plano sempre que
+você entrar no Windows. Sem janela (`pythonw.exe`), o log vai para
+`data\finbot.log` (até 3 arquivos de 1 MB). Para criar a tarefa, rode no
+PowerShell (não precisa de administrador):
+
+```powershell
+$proj = "C:\Users\SEU_USUARIO\projetos\finbot"   # pasta do projeto
+$user = "$env:USERDOMAIN\$env:USERNAME"
+$action = New-ScheduledTaskAction -Execute "$proj\.venv\Scripts\pythonw.exe" -Argument "-m finbot" -WorkingDirectory $proj
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user; $trigger.Delay = "PT30S"
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -MultipleInstances IgnoreNew -StartWhenAvailable
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName "finbot" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+O que essa tarefa faz: liga 30 s depois de você entrar (tempo da internet subir),
+roda sem limite de tempo e também na bateria, tenta de novo a cada minuto se
+cair, e nunca abre duas cópias. Sem janela, o bot insiste na conexão inicial até
+a internet aparecer.
+
+| Para... | Comando |
+| --- | --- |
+| Ligar agora | `Start-ScheduledTask finbot` |
+| Parar | `Stop-ScheduledTask finbot` |
+| Ver se está rodando | `Get-ScheduledTask finbot` (State = Running) |
+| Ver o log ao vivo | `Get-Content data\finbot.log -Tail 20 -Wait` |
+| Não ligar mais sozinho | `Disable-ScheduledTask finbot` (volta com `Enable-ScheduledTask`) |
+| Remover a tarefa | `Unregister-ScheduledTask finbot -Confirm:$false` |
+
+Atenção: **pare a tarefa antes de rodar o bot no terminal** (duas cópias dão
+`Conflict`), e depois de atualizar o código use `Stop-ScheduledTask finbot` e
+`Start-ScheduledTask finbot`. Com o PC desligado ou em suspensão o bot não
+responde; lembretes e rotativo atrasados saem quando ele voltar.
 
 ## Hospedar num servidor (24 horas, grátis)
 
