@@ -91,8 +91,11 @@ def test_dias_de_descanso_novembro_2026():
     [
         (2026, 12, "5du", date(2026, 12, 5)),  # ter 1, qua 2, qui 3, sex 4, sáb 5
         (2027, 1, "5du", date(2027, 1, 7)),  # 1º é feriado: sáb 2, seg 4, ter 5, qua 6, qui 7
-        (2026, 11, "dia:15", date(2026, 11, 14)),  # 15/11 domingo e feriado: antecipa
-        (2027, 2, "dia:30", date(2027, 2, 27)),  # fevereiro: dia 28 é domingo -> sábado 27
+        # Dia fixo em sábado/domingo/feriado antecipa para o dia útil BANCÁRIO (seg–sex)
+        (2026, 11, "dia:15", date(2026, 11, 13)),  # 15/11 domingo (e feriado) -> sex 13
+        (2027, 2, "dia:30", date(2027, 2, 26)),  # fevereiro: 28 é domingo, 27 sábado -> sex 26
+        (2026, 11, "mes:30", date(2026, 11, 30)),  # 30/11/2026 é segunda
+        (2026, 5, "mes:30", date(2026, 5, 29)),  # 30/05/2026 é sábado -> sex 29
     ],
 )
 def test_dia_do_pagamento(year, month, rule, expected):

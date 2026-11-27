@@ -414,7 +414,11 @@ def payslip(conn: sqlite3.Connection, competence: Month, extra=()) -> Payslip | 
     worked = max(min(worked, 30 - vacation_days), 0)
     salary = profile.gross_cents * worked // 30
 
-    pay_month = add_months(competence[0], competence[1], 1)
+    # Salário do mês cai no próprio mês ('mes:N', ex.: dia 30) ou no seguinte.
+    if payroll.pays_same_month(profile.payday_rule):
+        pay_month = competence
+    else:
+        pay_month = add_months(competence[0], competence[1], 1)
     pay_date = payroll.payday(pay_month[0], pay_month[1], profile.payday_rule, extra)
     # Horas extras cujo dinheiro cai no mês deste pagamento.
     arriving = []
@@ -551,8 +555,7 @@ def payments_between(conn: sqlite3.Connection, start: date, end: date, extra=())
             found.append(_salary_upcoming(slip))
         profile = profile_at(conn, _month_end(comp))
         if slip is not None and profile and profile.advance_pct and profile.advance_day:
-            last = calendar.monthrange(*comp)[1]
-            day = date(comp[0], comp[1], min(profile.advance_day, last))
+            day = payroll.fixed_day(comp[0], comp[1], profile.advance_day, extra)
             if start <= day <= end and day >= employment.admission_date:
                 amount = slip.advance_cents
                 found.append(

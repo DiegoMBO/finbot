@@ -134,14 +134,35 @@ def is_business_day(day: date, extra=()) -> bool:
     return day.weekday() != 6 and day not in holidays(day.year, extra)
 
 
+def is_bank_day(day: date, extra=()) -> bool:
+    """Dia em que o banco paga: segunda a sexta, exceto feriado."""
+    return day.weekday() < 5 and day not in holidays(day.year, extra)
+
+
+def fixed_day(year: int, month: int, day_number: int, extra=()) -> date:
+    """Pagamento em dia fixo: se cair em sábado, domingo ou feriado, antecipa
+    para o dia útil bancário anterior (dia 31 em mês de 30 vira o último dia)."""
+    last = calendar.monthrange(year, month)[1]
+    day = date(year, month, min(day_number, last))
+    while not is_bank_day(day, extra):
+        day -= timedelta(days=1)
+    return day
+
+
+def pays_same_month(rule: str) -> bool:
+    """'mes:N' = o salário do mês cai no próprio mês (ex.: dia 30)."""
+    return rule.startswith("mes:")
+
+
 def payday(year: int, month: int, rule: str, extra=()) -> date:
-    """Dia em que o salário cai no mês `month` ('5du' ou 'dia:N')."""
-    if rule.startswith("dia:"):
-        last = calendar.monthrange(year, month)[1]
-        day = date(year, month, min(int(rule[4:]), last))
-        while not is_business_day(day, extra):  # cai em domingo/feriado: antecipa
-            day -= timedelta(days=1)
-        return day
+    """Dia em que o salário cai no mês `month`.
+
+    '5du' = 5º dia útil (sábado conta, CLT art. 459); 'dia:N' ou 'mes:N' = dia fixo
+    (antecipa se não for dia útil bancário). Em 'mes:N' o mês é o próprio mês
+    trabalhado; nos outros, o mês seguinte (quem chama escolhe o mês).
+    """
+    if rule.startswith(("dia:", "mes:")):
+        return fixed_day(year, month, int(rule[4:]), extra)
     count, day = 0, date(year, month, 1)
     while True:
         if is_business_day(day, extra):

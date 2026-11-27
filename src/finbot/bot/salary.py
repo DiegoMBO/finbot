@@ -60,7 +60,11 @@ def _brl(cents: int) -> str:
 
 
 def payday_text(rule: str) -> str:
-    return "5º dia útil" if rule == "5du" else f"dia {rule[4:]}"
+    if rule == "5du":
+        return "5º dia útil do mês seguinte"
+    if rule.startswith("mes:"):
+        return f"dia {rule[4:]} do próprio mês"
+    return f"dia {rule[4:]} do mês seguinte"
 
 
 def format_payslip(s: Payslip) -> list[str]:
@@ -460,9 +464,14 @@ QUESTIONS = {
     "weekly_hours": ("Jornada semanal, em horas? Ex.: 40 ou 44", False),
     "overtime_pct": ("Adicional de hora extra, em %? Pular = 50%", True),
     "dependents": ("Quantos dependentes no Imposto de Renda? Pular = 0", True),
-    "payday_rule": ("Quando o salário cai? Ex.: 5º dia útil, ou dia 10. Pular = 5º dia útil", True),
+    "payday_rule": (
+        "Quando cai o pagamento COM os descontos? Ex.: 5º dia útil (do mês seguinte), "
+        "dia 10 (do mês seguinte) ou dia 30 do mesmo mês. Pular = 5º dia útil",
+        True,
+    ),
     "advance": (
-        "A empresa paga vale (adiantamento) no meio do mês? Ex.: 40% dia 20. Pular = não",
+        "Recebe adiantamento (quinzena/vale) antes? Ex.: 40% dia 15 (R$ 1.800 de R$ 4.500 "
+        "= 40%). Pular = não",
         True,
     ),
     "schedule": (

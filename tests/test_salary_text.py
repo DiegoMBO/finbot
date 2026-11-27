@@ -52,7 +52,14 @@ def test_formato_das_horas():
 
 @pytest.mark.parametrize(
     ("text", "rule"),
-    [("5º dia útil", "5du"), ("quinto dia util", "5du"), ("dia 10", "dia:10"), ("30", "dia:30")],
+    [
+        ("5º dia útil", "5du"),
+        ("quinto dia util", "5du"),
+        ("dia 10", "dia:10"),
+        ("30", "dia:30"),
+        ("dia 30 do mesmo mês", "mes:30"),
+        ("30 do próprio mês", "mes:30"),
+    ],
 )
 def test_dia_do_pagamento(text, rule):
     assert parse_payday(text) == rule

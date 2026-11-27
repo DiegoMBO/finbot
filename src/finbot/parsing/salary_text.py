@@ -92,14 +92,19 @@ def format_minutes(minutes: int) -> str:
 
 
 def parse_payday(text: str) -> str:
-    """ "quinto dia útil" / "5º dia útil" -> '5du' ; "dia 10" / "10" -> 'dia:10'."""
+    """Quando cai o pagamento com os descontos:
+    "5º dia útil" -> '5du' (mês seguinte)
+    "dia 10" / "10" -> 'dia:10' (dia 10 do mês seguinte)
+    "dia 30 do mesmo mês" / "30 do próprio mês" -> 'mes:30' (no próprio mês trabalhado)
+    """
     norm = normalize(text)
     if "util" in norm or "quinto" in norm or re.search(r"\b5\s*(o|º|°)\b", norm):
         return "5du"
     match = re.search(r"\d{1,2}", norm)
     if match and 1 <= int(match.group()) <= 31:
-        return f"dia:{int(match.group())}"
-    raise FieldError('responda "5º dia útil" ou o dia fixo, ex.: dia 10')
+        prefix = "mes" if re.search(r"\b(mesmo|proprio)\b", norm) else "dia"
+        return f"{prefix}:{int(match.group())}"
+    raise FieldError('responda "5º dia útil", "dia 10" (do mês seguinte) ou "dia 30 do mesmo mês"')
 
 
 def parse_advance(text: str) -> tuple[int, int]:

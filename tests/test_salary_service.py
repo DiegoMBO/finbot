@@ -147,6 +147,25 @@ def test_vale_quinzenal(conn):
     # Vale de 40%: 1.800 no dia 20; no 5º dia útil cai o resto do líquido
     found = salary.payments_between(conn, date(2026, 12, 1), date(2026, 12, 31))
     vale = next(u for u in found if u.kind == "vale")
-    assert (vale.pay_date, vale.net_cents) == (date(2026, 12, 20), 180_000)
+    # 20/12/2026 é domingo: antecipa para sexta, 18/12
+    assert (vale.pay_date, vale.net_cents) == (date(2026, 12, 18), 180_000)
     s = salary.payslip(conn, (2026, 11))
     assert s.net_cents == 406_849 - 180_000
+
+
+def test_quinzena_dia_15_e_resto_dia_30_do_mesmo_mes(conn):
+    # O caso real: R$ 1.800 (40%) no dia 15 e o resto, com descontos, no dia 30.
+    salary.update_settings(conn, payday_rule="mes:30", advance_pct=40, advance_day=15)
+    found = salary.payments_between(conn, date(2026, 12, 1), date(2026, 12, 31))
+    assert [(u.kind, u.pay_date, u.received_cents) for u in found if u.kind != "13-segunda"] == [
+        ("vale", date(2026, 12, 15), 180_000),  # terça
+        # 4.068,49 − 1.800 = 2.268,49; − consignado 793,21 = 1.475,28 na conta
+        ("salario", date(2026, 12, 30), 147_528),
+    ]
+    nov = salary.payslip(conn, (2026, 11))
+    assert nov.pay_date == date(2026, 11, 30)  # salário de novembro cai em novembro
+    assert (nov.net_cents, nov.received_cents) == (226_849, 147_528)
+    # Horas extras de novembro, pagas "2 meses depois" = no pagamento de janeiro
+    salary.add_overtime(conn, date(2026, 11, 20), 600, 50, NOW)
+    assert salary.payslip(conn, (2026, 12)).overtime == []
+    assert [o.total_cents for o in salary.payslip(conn, (2027, 1)).overtime] == [44_022]
