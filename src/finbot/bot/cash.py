@@ -86,6 +86,13 @@ def _item_line(i: cash.Item) -> str:
     return f"   {i.status} {day}{i.label}: {format_brl(i.amount_cents)}{note}{late}"
 
 
+def _nav(year: int, month: int, today: date) -> str:
+    """Comando que abre esse mês: '/extrato jan' (com ano se for além de 11 meses)."""
+    name = normalize(MONTH_NAMES[month - 1])[:3]
+    far = cash.months_between((today.year, today.month), (year, month)) >= 12
+    return f"/extrato {month}/{year}" if far else f"/extrato {name}"
+
+
 def _dm(d: date) -> str:
     return f"{d:%d/%m}"
 
@@ -112,7 +119,8 @@ def _format_outlook(o: cash.Outlook) -> list[str]:
             else (f"em {_dm(a)}" if b else f"a partir de {_dm(a)}")
             for a, b in o.negative
         ]
-        lines.append("   Fica negativo " + " e ".join(parts))
+        joined = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " e " + parts[-1]
+        lines.append("   Fica negativo " + joined)
         lines.append(
             "   Sem dinheiro nesses dias, uma conta atrasa ou uma fatura vai para o rotativo."
         )
@@ -180,7 +188,12 @@ def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -
 
     has_late = any(i.status == LATE for i in s.items)
     legend = f"{DONE} feito · ⏳ previsto" + (f" · {LATE} atrasado" if has_late else "")
-    lines += ["", legend, "Outro mês: /extrato próximo · /extrato jan"]
+    # Navegação relativa ao mês MOSTRADO (não a hoje): anterior · seguinte
+    prev_y, prev_m = finance.add_months(s.year, s.month, -1)
+    next_y, next_m = finance.add_months(s.year, s.month, 1)
+    nav = [_nav(prev_y, prev_m, today)] if (prev_y, prev_m) >= (today.year, today.month) else []
+    nav.append(_nav(next_y, next_m, today))
+    lines += ["", legend, "Outro mês: " + " · ".join(nav)]
     return "\n".join(lines)
 
 

@@ -180,6 +180,24 @@ def test_aviso_das_parcelas_sem_mes_definido(conn):
     assert "/fatura nome valor" in text
 
 
+def test_rodape_aponta_para_os_meses_vizinhos(conn):
+    nov = cash_bot.format_statement(cash.statement(conn, 2026, 11, TODAY, SP), TODAY)
+    assert nov.endswith("Outro mês: /extrato dez")  # outubro já passou
+    dec = cash_bot.format_statement(cash.statement(conn, 2026, 12, TODAY, SP), TODAY)
+    assert dec.endswith("Outro mês: /extrato nov · /extrato jan")
+
+
+def test_periodos_negativos_separados_por_virgula():
+    o = cash.Outlook(
+        None, [], -100, date(2026, 12, 10), -100,
+        [(date(2026, 12, 10), date(2026, 12, 14)), (date(2026, 12, 16), date(2026, 12, 17)),
+         (date(2027, 1, 10), date(2027, 1, 14))],
+        date(2027, 1, 31),
+    )  # fmt: skip
+    text = "\n".join(cash_bot._format_outlook(o))
+    assert "Fica negativo de 10/12 a 14/12, de 16/12 a 17/12 e de 10/01 a 14/01" in text
+
+
 def test_sem_saldo_inicial_nao_tem_previsao_dia_a_dia(conn):
     assert cash.outlook(conn, 2026, 11, TODAY, SP) is None
     cash.set_anchor(conn, 200, NOW)
