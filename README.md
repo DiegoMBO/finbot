@@ -405,9 +405,12 @@ previsto, ⚠️ venceu e não foi registrado (conta como a pagar).
 O **fim do mês** sozinho engana: o salário do dia 30 já tem dono (as contas do
 começo do mês seguinte). Por isso o extrato mostra também:
 
-- **Já comprometido até o próximo dinheiro:** as contas que vencem entre o fim do
+- **Contas até o próximo dinheiro:** as que vencem entre o fim do
   mês e a próxima entrada (ex.: o vale do dia 15).
-- **Livre de verdade** = fim do mês − comprometido (🚨 negativo, ⚠️ menos de R$ 300).
+- **Faltam / Sobram** = fim do mês − essas contas. "🚨 Faltam R$ X" quer dizer que,
+  por alguns dias, não vai ter dinheiro para pagar tudo (até a próxima entrada);
+  não é uma dívida no fim do mês, mas vira uma (cheque especial, rotativo, atraso)
+  se nada mudar. "Sobram" com ⚠️ = menos de R$ 300.
 - **Ponto mais baixo:** o saldo é calculado dia a dia (no mesmo dia, o dinheiro
   entra antes de sair) até o fim do mês seguinte, com os dias em que a conta
   fica negativa.

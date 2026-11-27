@@ -362,7 +362,8 @@ class Outlook:
     """O que o "fim do mês" não mostra sozinho.
 
     O dinheiro do salário do dia 30 já tem dono: as contas que vencem antes do
-    próximo dinheiro entrar. "Livre de verdade" = fim do mês − essas contas.
+    próximo dinheiro entrar. free_cents = fim do mês − essas contas
+    (negativo = "faltam X para pagar as contas até o próximo dinheiro").
     O ponto mais baixo mostra se a conta fica negativa no meio do caminho.
     """
 

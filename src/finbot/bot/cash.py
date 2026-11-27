@@ -99,16 +99,20 @@ def _dm(d: date) -> str:
 
 def _format_outlook(o: cash.Outlook) -> list[str]:
     lines = []
+    until = (
+        f"até o próximo dinheiro ({_dm(o.next_income_day)})"
+        if o.next_income_day
+        else "até o fim do mês seguinte (sem entrada prevista)"
+    )
     if o.committed:
-        until = (
-            f"até o próximo dinheiro ({_dm(o.next_income_day)})"
-            if o.next_income_day
-            else ("no mês seguinte (sem entrada prevista)")
-        )
-        lines.append(f"   Já comprometido {until}: −{format_brl(o.committed_cents)}")
+        lines.append(f"   Contas {until}: −{format_brl(o.committed_cents)}")
         lines.append("   (" + ", ".join(f"{i.label} {_dm(i.day)}" for i in o.committed) + ")")
-    icon = "🚨" if o.free_cents < 0 else ("⚠️" if o.free_cents < 30_000 else "✅")
-    lines.append(f"= Livre de verdade: {_signed(o.free_cents)} {icon}")
+    # O dinheiro do fim do mês já tem dono: as contas que vencem antes de entrar mais.
+    if o.free_cents < 0:
+        lines.append(f"🚨 Faltam {format_brl(-o.free_cents)} para pagar as contas {until}")
+    else:
+        icon = "⚠️" if o.free_cents < 30_000 else "✅"
+        lines.append(f"{icon} Sobram {format_brl(o.free_cents)} depois de pagar as contas {until}")
 
     lines.append("")
     if o.negative:

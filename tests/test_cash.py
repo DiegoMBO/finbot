@@ -151,9 +151,10 @@ def test_livre_de_verdade_e_ponto_mais_baixo_feito_a_mao(conn):
     # Dia a dia: 27/11 350 → 30/11 2.762,78 → 10/12 169,94 → 15/12 1.969,94 ...
     assert (o.low_day, o.low_cents, o.negative) == (date(2026, 12, 10), 16_994, [])
     text = cash_bot.format_statement(cash.statement(conn, 2026, 11, TODAY, SP), TODAY, o)
-    assert "Já comprometido até o próximo dinheiro (15/12): −R$ 2.592,84" in text
+    assert "Contas até o próximo dinheiro (15/12): −R$ 2.592,84" in text
     assert "(Bradesco 10/12, fatura Nubank 10/12)" in text
-    assert "= Livre de verdade: R$ 169,94 ⚠️" in text  # menos de R$ 300: ⚠️
+    # menos de R$ 300: ⚠️
+    assert "⚠️ Sobram R$ 169,94 depois de pagar as contas até o próximo dinheiro (15/12)" in text
     assert "📉 Ponto mais baixo: R$ 169,94 em 10/12 (não fica negativo até 31/12)" in text
 
 
@@ -165,7 +166,7 @@ def test_fica_negativo_no_meio_do_caminho(conn):
     assert (o.low_day, o.low_cents) == (date(2026, 12, 10), -17_806)
     assert o.negative == [(date(2026, 12, 10), date(2026, 12, 14))]
     text = cash_bot.format_statement(cash.statement(conn, 2026, 11, TODAY, SP), TODAY, o)
-    assert "= Livre de verdade: −R$ 178,06 🚨" in text
+    assert "🚨 Faltam R$ 178,06 para pagar as contas até o próximo dinheiro (15/12)" in text
     assert "Fica negativo de 10/12 a 14/12" in text
 
 
