@@ -103,6 +103,21 @@ def parse_schedule(text: str) -> list[tuple[int, int]]:
     return sorted(set(found), key=lambda dm: (dm[1], dm[0]))
 
 
+def schedule_warnings(schedule: list[tuple[int, int]]) -> list[str]:
+    """Datas do 13º depois do prazo da lei (Lei 4.749/65): 1ª parcela até 30/11,
+    2ª até 20/12. Não bloqueia (a empresa pode atrasar), mas avisa: costuma ser
+    erro de digitação."""
+    *firsts, (last_day, last_month) = schedule
+    found = [
+        f"{d:02d}/{m:02d} é depois de 30/11, o prazo da 1ª parcela"
+        for d, m in firsts
+        if (m, d) > (11, 30)
+    ]
+    if (last_month, last_day) > (12, 20):
+        found.append(f"{last_day:02d}/{last_month:02d} é depois de 20/12, o prazo da 2ª parcela")
+    return found
+
+
 def format_schedule(schedule: list[tuple[int, int]]) -> str:
     return ", ".join(f"{d:02d}/{m:02d}" for d, m in schedule)
 

@@ -366,6 +366,35 @@ def pre_bot_cents(conn: sqlite3.Connection, card: Card, today: date) -> int:
     return min(_items_of_kind(conn, inv.id, "anterior"), inv.remaining_cents)
 
 
+def invoices_due(conn: sqlite3.Connection, today: date) -> list[tuple[date, int]]:
+    """Faturas a pagar de hoje em diante (todos os cartões): (vencimento, valor),
+    sem a parte do rotativo (que é contada à parte, como dívida com juros)."""
+    found = []
+    for card in list_cards(conn):
+        for inv in invoices(conn, card.id):
+            if inv.due_date < today or inv.rolled_at or inv.remaining_cents == 0:
+                continue
+            rot = min(_items_of_kind(conn, inv.id, "rotativo"), inv.remaining_cents)
+            if inv.remaining_cents - rot > 0:
+                found.append((inv.due_date, inv.remaining_cents - rot))
+    return sorted(found)
+
+
+def pre_bot_by_month(conn: sqlite3.Connection, today: date, n: int = 4) -> list[tuple[str, int]]:
+    """Faturas de compras de ANTES do bot, somadas em todos os cartões, mês a mês
+    (AAAA-MM do vencimento), da fatura atual em diante. Diminuem conforme as
+    parcelas antigas acabam."""
+    totals: dict[str, int] = {}
+    for card in list_cards(conn):
+        for inv in invoices(conn, card.id):
+            if inv.due_date < today or inv.rolled_at or inv.remaining_cents == 0:
+                continue
+            part = min(_items_of_kind(conn, inv.id, "anterior"), inv.remaining_cents)
+            if part > 0:
+                totals[inv.reference_month] = totals.get(inv.reference_month, 0) + part
+    return sorted(totals.items())[:n]
+
+
 def purchases(conn: sqlite3.Connection, card_id: int, limit: int = 8) -> list[Purchase]:
     rows = conn.execute(
         "SELECT * FROM card_purchases WHERE card_id = ? ORDER BY id DESC LIMIT ?",

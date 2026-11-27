@@ -153,6 +153,15 @@ def test_vale_quinzenal(conn):
     assert s.net_cents == 406_849 - 180_000
 
 
+def test_aviso_de_datas_do_13_fora_do_prazo():
+    ok = salary.parse_schedule("30/06, 30/11, 18/12")
+    assert salary.schedule_warnings(ok) == []
+    assert salary.schedule_warnings(salary.parse_schedule("18/12, 30/12")) == [
+        "18/12 é depois de 30/11, o prazo da 1ª parcela",
+        "30/12 é depois de 20/12, o prazo da 2ª parcela",
+    ]
+
+
 def test_quinzena_dia_15_e_resto_dia_30_do_mesmo_mes(conn):
     # O caso real: R$ 1.800 (40%) no dia 15 e o resto, com descontos, no dia 30.
     salary.update_settings(conn, payday_rule="mes:30", advance_pct=40, advance_day=15)

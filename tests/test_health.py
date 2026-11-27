@@ -91,7 +91,8 @@ def test_texto_dos_indicadores(scenario):
     assert "Base: média de ago/2026, set/2026, out/2026 (3 mês(es) completo(s))" in text
     assert "Gastos fixos médios (moradia, saúde, educação): R$ 1.800,00" in text
     assert (
-        "Comprometimento da renda: 24,9% → 🟢 saudável (saudável até 30%, atenção até 40%)" in text
+        "Comprometimento da renda com dívidas: 24,9% → 🟢 saudável "
+        "(saudável até 30%, atenção até 40%)" in text
     )
     assert "Sobra depois dos fixos e das parcelas: R$ 1.954,40" in text
 

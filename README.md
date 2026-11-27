@@ -60,6 +60,7 @@ ao seu chat.
 | `/removerdivida nome` | Apaga uma dívida (pede confirmação) |
 | `/simular nome extra` | Quanto tempo e juros um extra mensal economiza |
 | `/estrategia [extra]` | Avalanche × bola de neve (com as faturas e o rotativo dos cartões) |
+| `/estrategia sobra [reserva]` | Avalanche usando a sobra real de cada mês (precisa do salário cadastrado) |
 | `/semcartao [extra]` | E se eu parar de usar os cartões? |
 | `/saude` | Comprometimento da renda, sobra e sugestões com seus números |
 | `/grafico nome` | Imagem com a evolução do saldo e a projeção |
@@ -364,9 +365,24 @@ são estimativas: o holerite da empresa sempre prevalece.
 ### Onde o salário aparece
 
 - `/saude`: a renda base passa a ser o salário líquido (antes do consignado) mais
-  a média das outras entradas.
+  a média das outras entradas. O **comprometimento** conta só as parcelas das
+  dívidas; as faturas de compras de antes do bot aparecem à parte, mês a mês (elas
+  vão diminuindo), com a sobra de cada mês já descontando a fatura daquele mês.
 - `/estrategia`: além do que sai por mês, mostra o que **entra** (salário, 13º,
   férias) e a **sobra** prevista de cada mês.
+- `/estrategia sobra [reserva]`: avalanche em que o dinheiro extra de cada mês é a
+  sobra real: entradas − faturas − parcelas − a **reserva para viver** (comida,
+  transporte, contas; ex.: `/estrategia sobra 1500`). O caixa é acumulado: o
+  salário do dia 30 paga o mês seguinte, e se faltar dinheiro num mês o déficit
+  passa para o próximo (e o bot avisa do risco de cair no rotativo).
+
+### Pagamento quinzenal
+
+Adiantamento no dia 15 e o resto no dia 30 do mesmo mês: no cadastro responda
+`dia 30 do mesmo mês` para o pagamento e `40% dia 15` para o adiantamento. Dia
+fixo em sábado, domingo ou feriado é antecipado para o dia útil bancário anterior.
+O bot avisa quando uma data do 13º passa do prazo da lei (1ª parcela até 30/11,
+2ª até 20/12).
 
 ## Cartões de crédito
 

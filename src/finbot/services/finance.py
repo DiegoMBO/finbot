@@ -243,8 +243,12 @@ def run_strategy(
     strategy: Strategy,
     extra_cents: int = 0,
     max_months: int = MAX_MONTHS,
+    extra_schedule: tuple[int, ...] = (),
 ) -> StrategyResult:
     """Simula a quitação de todas as dívidas com um orçamento mensal FIXO.
+
+    `extra_schedule`: dinheiro a mais DIFERENTE em cada mês (mês 1, 2, 3...),
+    somado ao orçamento só naquele mês (ex.: a sobra prevista do salário).
 
     Orçamento = soma das parcelas atuais + extra. A cada mês:
     1. todas as dívidas recebem os juros do mês;
@@ -271,14 +275,17 @@ def run_strategy(
             payoff_month[name] = month
             order.append(name)
 
-    while balances and month < max_months and budget > 0:
+    def month_extra(m: int) -> int:
+        return extra_schedule[m - 1] if m <= len(extra_schedule) else 0
+
+    while balances and month < max_months and (budget > 0 or any(extra_schedule[month:])):
         month += 1
         for name in balances:
             interest = monthly_interest(balances[name], by_name[name].rate_ppm)
             balances[name] += interest
             total_interest += interest
 
-        available = budget
+        available = budget + month_extra(month)
         for name in balances:
             paid = min(by_name[name].minimum(month), balances[name], available)
             pay(name, paid)

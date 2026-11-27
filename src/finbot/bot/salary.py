@@ -637,7 +637,21 @@ async def on_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     except FieldError as exc:
         await message.reply_text(f"Não entendi: {exc}.")
         return await _ask(message, draft)
+    if field == "schedule":
+        warning = schedule_warning_text(value)
+        if warning:
+            await message.reply_text(warning)
     return await _advance(message, context, value)
+
+
+def schedule_warning_text(schedule: list[tuple[int, int]]) -> str | None:
+    problems = salary.schedule_warnings(schedule)
+    if not problems:
+        return None
+    return (
+        "⚠️ Confira as datas do 13º: " + "; ".join(problems) + ". "
+        "Se foi engano, corrija depois em /editarsalario → Datas do 13º."
+    )
 
 
 async def on_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -815,6 +829,9 @@ def apply_edit(conn, field: str, text: str, today: date, now: datetime) -> str:
         value = parse_answer(conn, field, text, today)
         if field == "schedule":
             salary.save_employment(conn, employment.admission_date, value, now)
+            warning = schedule_warning_text(value)
+            if warning:
+                return f"✅ Datas do 13º atualizadas.\n{warning}"
         else:
             salary.save_employment(conn, value, employment.schedule, now)
     elif field in ("consigned", "deductions"):

@@ -7,6 +7,7 @@ montamos os dados de entrada e o texto da resposta.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from telegram import Update
@@ -16,6 +17,7 @@ from finbot.bot.debts import card_hint, short_month
 from finbot.config import Settings
 from finbot.money import AmountError, format_brl, format_percent, parse_amount
 from finbot.parsing.payment import PaymentArgsError, parse_name_and_amount
+from finbot.parsing.text import normalize
 from finbot.services import credit_cards as cc
 from finbot.services import debts, finance, salary
 from finbot.services.debts import Debt
@@ -166,6 +168,94 @@ def monthly_outflow(
 def _month_label(key: str) -> str:
     year, month = (int(x) for x in key.split("-"))
     return short_month(date(year, month, 1))
+
+
+@dataclass(frozen=True)
+class CashMonth:
+    key: str  # AAAA-MM
+    income_cents: int  # salário, vale, 13º, férias (líquidos, antes do consignado)
+    invoices_cents: int  # faturas dos cartões que vencem no mês
+    extra_cents: int  # o que sobra para as dívidas neste mês
+    deficit_cents: int  # quanto falta (acumulado) se o caixa ficou negativo
+
+
+def cash_plan(
+    conn: sqlite3.Connection,
+    inputs: list[finance.DebtInput],
+    today: date,
+    reserve_cents: int,
+    extra=(),
+    months: int = 36,
+) -> list[CashMonth]:
+    """Caixa mês a mês para a estratégia com a sobra real.
+
+    O salário do dia 30 paga o mês seguinte, então o caixa é ACUMULADO:
+    - mês 0 (o resto do mês atual): o que ainda cai na conta − faturas que ainda vencem;
+    - cada mês seguinte: + entradas − faturas − parcelas (o orçamento fixo da
+      estratégia) − reserva para viver. O que sobrar vira extra para as dívidas;
+      se faltar, o déficit passa para o mês seguinte.
+    """
+    installments = sum(d.minimum(1) for d in inputs)
+    last = month_after(today, months + 1) - timedelta(days=1)
+    payments = salary.payments_between(conn, today, last, extra)
+    bills = cc.invoices_due(conn, today)
+
+    def key_of(d: date) -> str:
+        return f"{d:%Y-%m}"
+
+    current = key_of(today)
+    cash = sum(u.received_cents for u in payments if key_of(u.pay_date) == current)
+    cash -= sum(v for d, v in bills if key_of(d) == current)
+    plan = []
+    for k in range(1, months + 1):
+        key = key_of(month_after(today, k))
+        income = sum(u.net_cents for u in payments if key_of(u.pay_date) == key)
+        invoices = sum(v for d, v in bills if key_of(d) == key)
+        cash += income - invoices - installments - reserve_cents
+        extra_k = max(cash, 0)
+        cash -= extra_k
+        plan.append(CashMonth(key, income, invoices, extra_k, -cash if cash < 0 else 0))
+    return plan
+
+
+def format_cash_strategy(
+    inputs: list[finance.DebtInput], plan: list[CashMonth], reserve_cents: int, today: date
+) -> str:
+    rates = {d.name: d.rate_ppm for d in inputs}
+    r = finance.run_strategy(inputs, "avalanche", extra_schedule=tuple(m.extra_cents for m in plan))
+    base = finance.run_strategy(inputs, "avalanche")
+    shown = plan[:6]
+    lines = [
+        "⚖️ Estratégia com a sobra real de cada mês (avalanche)",
+        f"Reserva para viver (comida, transporte, contas, compras novas): "
+        f"{format_brl(reserve_cents)}/mês · mude com /estrategia sobra 1500",
+        "Extra que sobra para as dívidas: "
+        + " · ".join(f"{_month_label(m.key)} {format_brl(m.extra_cents)}" for m in shown),
+    ]
+    short = [m for m in shown if m.deficit_cents]
+    if short:
+        lines.append(
+            "🚨 Falta dinheiro (acumulado) em: "
+            + " · ".join(f"{_month_label(m.key)} (−{format_brl(m.deficit_cents)})" for m in short)
+            + " → risco de não pagar uma fatura inteira e cair no rotativo"
+        )
+    lines.append("")
+    lines += _format_result(r, rates, today)[1:]
+    if r.feasible and base.feasible:
+        lines.append(
+            "Só com as parcelas (/estrategia): tudo em "
+            f"{short_month(month_after(today, base.total_months))}, "
+            f"juros {format_brl(base.total_interest_cents)}."
+        )
+    if reserve_cents == 0:
+        lines.append(
+            "⚠️ Reserva zero supõe que você não gasta nada além de parcelas e faturas. "
+            "Informe quanto precisa por mês para viver: /estrategia sobra 1500"
+        )
+    lines.append(
+        "O dinheiro do salário do dia 30 conta para o mês seguinte (é quando ele é gasto)."
+    )
+    return "\n".join(lines)
 
 
 def monthly_income(
@@ -333,8 +423,11 @@ def format_no_card_scenario(
 
 
 async def strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/estrategia [valor_extra]."""
+    """/estrategia [valor_extra] ou /estrategia sobra [reserva_para_viver]."""
     message = update.effective_message
+    if context.args and normalize(context.args[0]) == "sobra":
+        await cash_strategy(message, context, list(context.args[1:]))
+        return
     extra = 0
     if context.args:
         try:
@@ -351,6 +444,27 @@ async def strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         conn, [m for m, _, _ in outflow], today, _settings(context).extra_holidays
     )
     await message.reply_text(format_strategies(inputs, extra, today, outflow, income))
+
+
+async def cash_strategy(message, context, args: list[str]) -> None:
+    conn = _db(context)
+    if not salary.profiles(conn):
+        await message.reply_text("Para usar a sobra real, cadastre o salário primeiro: /salario")
+        return
+    reserve = 0
+    if args:
+        try:
+            reserve = parse_amount(" ".join(args))
+        except AmountError:
+            await message.reply_text("Não entendi a reserva. Ex.: /estrategia sobra 1500")
+            return
+    today = datetime.now(_settings(context).timezone).date()
+    inputs = strategy_inputs(debts.list_active(conn)) + revolving_inputs(conn, today)
+    if not inputs:
+        await message.reply_text("Nenhuma dívida com saldo. 🎉")
+        return
+    plan = cash_plan(conn, inputs, today, reserve, _settings(context).extra_holidays)
+    await message.reply_text(format_cash_strategy(inputs, plan, reserve, today))
 
 
 def _parse_extra(args) -> int | None:

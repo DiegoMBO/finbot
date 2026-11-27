@@ -76,6 +76,8 @@ HELP_TEXT = (
     "/saldo nome valor: corrige o saldo pelo valor do app do banco\n"
     "/simular nome extra: quanto você economiza pagando um extra por mês\n"
     "/estrategia [extra]: compara avalanche e bola de neve\n"
+    "/estrategia sobra [reserva]: usa a sobra real de cada mês (salário − faturas − parcelas "
+    "− reserva para viver)\n"
     "/semcartao [extra]: e se eu parar de usar os cartões?\n"
     "/saude: indicadores de saúde financeira e sugestões\n"
     "/grafico nome: imagem com a evolução do saldo e a projeção\n"

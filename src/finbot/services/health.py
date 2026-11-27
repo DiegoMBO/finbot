@@ -69,18 +69,24 @@ class Indicators:
     installments_cents: int
     installment_debts: list[str]  # nomes das dívidas cujas parcelas entraram na conta
     total_debt_cents: int
-    commitment_bp: int | None  # None quando não há renda registrada
+    commitment_bp: int | None  # parcelas das DÍVIDAS ÷ renda (None sem renda)
     band: Band | None
-    leftover_cents: int
-    # Cartões: parcelas de compras de ANTES do bot na fatura atual. Elas não estão
-    # nos gastos (o bot não viu essas compras), então entram no comprometimento.
-    card_pre_bot_cents: int = 0
+    leftover_cents: int  # renda − fixos − parcelas das dívidas
+    # Cartões: faturas de compras de ANTES do bot, mês a mês. Elas não estão nos
+    # gastos (o bot não viu essas compras) e vão diminuindo; ficam à parte do
+    # comprometimento para não tratar o pior mês como se fosse todo mês.
+    card_pre_bot_months: list[tuple[str, int]] = field(default_factory=list)
     card_used_cents: int = 0  # total usado dos limites (o que ainda vai ser cobrado)
     salary_cents: int | None = None  # líquido do salário cadastrado (None = sem cadastro)
 
     @property
-    def committed_cents(self) -> int:
-        return self.installments_cents + self.card_pre_bot_cents
+    def card_pre_bot_cents(self) -> int:
+        """A da fatura atual (a maior, normalmente)."""
+        return self.card_pre_bot_months[0][1] if self.card_pre_bot_months else 0
+
+    def leftover_by_month(self) -> list[tuple[str, int]]:
+        """Sobra de cada mês descontando também as faturas antigas daquele mês."""
+        return [(m, self.leftover_cents - value) for m, value in self.card_pre_bot_months]
 
     @property
     def total_with_cards_cents(self) -> int:
@@ -132,9 +138,7 @@ def indicators(
     paying = [d for d in active if counts_as_installment(d)]
     installments = sum(d.payment_cents for d in paying)
     cards = credit_cards.list_cards(conn)
-    pre_bot = sum(credit_cards.pre_bot_cents(conn, c, today) for c in cards)
-    committed = installments + pre_bot
-    commitment = committed * 10_000 // income if income > 0 else None
+    commitment = installments * 10_000 // income if income > 0 else None
     return Indicators(
         months=months,
         partial=partial,
@@ -147,8 +151,8 @@ def indicators(
         band=classify(commitment, cfg.ok_max_pct, cfg.warn_max_pct)
         if commitment is not None
         else None,
-        leftover_cents=income - fixed - committed,
-        card_pre_bot_cents=pre_bot,
+        leftover_cents=income - fixed - installments,
+        card_pre_bot_months=credit_cards.pre_bot_by_month(conn, today),
         salary_cents=salary_net,
         card_used_cents=sum(c.used_cents for c in cards),
     )

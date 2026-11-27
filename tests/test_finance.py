@@ -223,6 +223,23 @@ def test_calendario_de_faturas_libera_dinheiro_feito_a_mao():
     assert r.total_interest_cents == 80_144
 
 
+def test_extra_diferente_a_cada_mes_feito_a_mao():
+    # 1.000 sem juros, parcela 100. Só parcela: 10 meses.
+    # Extras 0, 500, 500: M1 900; M2 900 − 100 − 500 = 300; M3 paga os 300 -> mês 3.
+    d = f.DebtInput("D", 100_000, 0, 10_000)
+    assert f.run_strategy([d], "avalanche").payoff_month == {"D": 10}
+    r = f.run_strategy([d], "avalanche", extra_schedule=(0, 50_000, 50_000))
+    assert r.payoff_month == {"D": 3}
+
+
+def test_extra_por_mes_sem_parcela_fixa():
+    # Santander-like: 1.000 a 10%, sem parcela. Extras 0 e 1.500:
+    # M1 1.000 + 100 = 1.100 (nada pago); M2 1.100 + 110 = 1.210, paga 1.210 -> mês 2
+    d = f.DebtInput("S", 100_000, 100_000, 0)
+    r = f.run_strategy([d], "avalanche", extra_schedule=(0, 150_000))
+    assert (r.payoff_month, r.total_interest_cents) == ({"S": 2}, 21_000)
+
+
 def test_estrategia_inviavel():
     # Juros de 100/mês e orçamento de 50: nunca quita
     r = f.run_strategy([f.DebtInput("Z", 100_000, 100_000, 5_000)], "avalanche", max_months=36)
