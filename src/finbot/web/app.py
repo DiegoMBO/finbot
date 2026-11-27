@@ -10,6 +10,10 @@ Rotas:
   POST /desfazer                         desfaz o último registro (= /desfazer)
   GET  /dividas, /dividas/{id}           dívidas, simulador e detalhe com gráfico
   POST /pagar                            pagamento de dívida (= /pagar)
+  GET  /cartoes                          cartões, faturas empilhadas, melhor cartão hoje
+  POST /pagar-fatura, /fatura-valor      pagar fatura; informar o valor do banco (= /fatura)
+  GET  /salario                          holerite, próximos pagamentos, horas extras, 13º
+  POST /horas-extras                     registrar horas extras
   GET  /api/simular?extra=CENTAVOS       simulador de todas as dívidas (JSON)
   GET  /api/dividas/{id}/simular         simulador de uma dívida (JSON)
   GET  /api/saldo-diario                 dados do gráfico (JSON)
@@ -23,7 +27,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from importlib import resources
 from pathlib import Path
 
@@ -34,12 +38,15 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from finbot import db
+from finbot.bot.card_ops import format_payment as format_card_payment
 from finbot.bot.cash import parse_signed_amount
 from finbot.bot.payments import format_payment
 from finbot.config import Settings
 from finbot.money import AmountError, parse_amount
 from finbot.services import cash, debts, undo
-from finbot.web import debts_view, entries, views
+from finbot.services import credit_cards as cc
+from finbot.services import salary as salary_service
+from finbot.web import cards_view, debts_view, entries, salary_view, views
 from finbot.web.config import WebSettings
 from finbot.web.security import LoginThrottle, secret_key, verify_password
 
@@ -244,6 +251,109 @@ def create_app(settings: Settings, web: WebSettings, clock=None) -> FastAPI:
             result = debts.pay(conn, debt, amount, now_fn(), settings.timezone)
             request.session["flash"] = format_payment(result, today())
         return RedirectResponse(_safe_back(voltar), status_code=303)
+
+    @app.get("/cartoes", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def cards_list(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+        data = cards_view.cards_page(conn, today())
+        flash = request.session.pop("flash", None)
+        return templates.TemplateResponse(
+            request, "cartoes.html", {**data, "flash": flash, "page": "cartoes"}
+        )
+
+    def _card(conn, card_id: int):
+        return next((c for c in cc.list_cards(conn) if c.id == card_id), None)
+
+    @app.post("/pagar-fatura", dependencies=[Depends(require_login)])
+    def pay_invoice(
+        request: Request,
+        cartao: int = Form(...),
+        valor: str = Form(""),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        card = _card(conn, cartao)
+        try:
+            amount = parse_amount(valor)
+        except AmountError:
+            amount = 0
+        if card is None or amount <= 0:
+            request.session["flash"] = "Não registrei: escolha o cartão e um valor válido."
+        else:
+            # O mesmo de "paguei 1500 da fatura do nubank" no bot (não é gasto).
+            r = cc.pay(conn, card, amount, today(), now_fn())
+            request.session["flash"] = format_card_payment(r, today())
+        return RedirectResponse("/cartoes", status_code=303)
+
+    @app.post("/fatura-valor", dependencies=[Depends(require_login)])
+    def inform_invoice(
+        request: Request,
+        cartao: int = Form(...),
+        vencimento: str = Form(...),
+        valor: str = Form(""),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        card = _card(conn, cartao)
+        try:
+            amount = parse_amount(valor)
+            due = date.fromisoformat(vencimento)
+        except (AmountError, ValueError):
+            card = None
+        if card is None:
+            request.session["flash"] = "Não registrei: confira o cartão, o mês e o valor."
+        else:
+            # O mesmo do /fatura nome valor: a diferença sai do "sem mês definido".
+            inv, adjustment = cc.inform_invoice(conn, card, due, amount, now_fn())
+            text = (
+                f"✅ Fatura de {card.name} que vence em {due:%d/%m/%Y}: "
+                f"{views.brl(inv.total_cents)} (valor do banco)."
+            )
+            if adjustment:
+                sign = "+" if adjustment > 0 else "−"
+                text += (
+                    f"\nUtilizado ajustado em {sign}{views.brl(abs(adjustment))} (diferença que o "
+                    "bot não conhecia, como anuidade, juros ou IOF)."
+                )
+            request.session["flash"] = text
+        return RedirectResponse("/cartoes", status_code=303)
+
+    @app.get("/salario", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def salary_page(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+        data = salary_view.salary_page(conn, today(), settings.extra_holidays)
+        flash = request.session.pop("flash", None)
+        return templates.TemplateResponse(
+            request, "salario.html", {**data, "flash": flash, "page": "salario"}
+        )
+
+    @app.post("/horas-extras", dependencies=[Depends(require_login)])
+    def add_overtime(
+        request: Request,
+        data: str = Form(""),
+        horas: str = Form("0"),
+        minutos: str = Form("0"),
+        tipo: str = Form("normal"),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        profile = salary_service.profile_at(conn, today())
+        try:
+            worked_on = date.fromisoformat(data) if data else today()
+            minutes = int(horas or 0) * 60 + int(minutos or 0)
+        except ValueError:
+            minutes = 0
+            worked_on = today()
+        if profile is None:
+            request.session["flash"] = "Cadastre o salário primeiro (no bot: /salario)."
+        elif not 0 < minutes <= 24 * 60 or worked_on > today():
+            request.session["flash"] = (
+                "Não registrei: informe as horas (até 24h) e uma data até hoje."
+            )
+        else:
+            pct = profile.holiday_pct if tipo == "feriado" else profile.overtime_pct
+            salary_service.add_overtime(conn, worked_on, minutes, pct, now_fn())
+            request.session["flash"] = (
+                f"✅ {minutes // 60}h{minutes % 60:02d} extras ({pct}%) em {worked_on:%d/%m/%Y}. "
+                f"Caem {profile.overtime_lag_months} mês(es) depois. Errou? Desfazer em Gastos "
+                "ou /desfazer."
+            )
+        return RedirectResponse("/salario", status_code=303)
 
     @app.get("/api/simular", dependencies=[Depends(require_login)])
     def api_simulate(extra: int = 0, conn: sqlite3.Connection = Depends(get_conn)):

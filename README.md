@@ -216,7 +216,20 @@ ser desfeito no bot, e vice-versa.
   projeção, simulador só dela (`/simular`) e o histórico. Dá para **registrar
   pagamento** (o mesmo `/pagar`, com o mesmo texto de confirmação).
 
-Próximas telas: Cartões e Salário.
+- **Cartões:** uso dos limites, faturas atuais, o "sem mês definido", o **melhor
+  cartão para comprar hoje** e o gráfico das **próximas faturas empilhadas por
+  cartão** (cada cartão sempre com a mesma cor). Em cada cartão: faturas mês a
+  mês, **pagar fatura** (não é gasto, como no bot) e **informar o valor do
+  banco** de qualquer uma das próximas 6 faturas (o mesmo `/fatura nome valor`:
+  a diferença sai do "sem mês definido").
+- **Salário:** o que cai na conta nos próximos 6 meses (gráfico por tipo:
+  salário, adiantamento, 13º, férias), o holerite linha a linha, os próximos
+  pagamentos, **registrar horas extras** (dia normal ou domingo/feriado; dá para
+  desfazer) e o resumo do 13º e das férias. Mudanças no cadastro continuam no bot
+  (`/editarsalario`, `/decimo`, `/ferias`).
+
+As cores dos gráficos com várias séries vêm de uma paleta testada para
+daltonismo e para os temas claro e escuro.
 
 ### 1. Criar a senha
 

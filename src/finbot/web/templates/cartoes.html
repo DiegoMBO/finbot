@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Cartões · finbot{% endblock %}
+
+{% block content %}
+<h1>Cartões</h1>
+{% if flash %}<div class="alert ok" role="status" style="white-space:pre-line">{{ flash }}</div>{% endif %}
+
+{% if not cards %}
+<div class="card"><p>Nenhum cartão cadastrado. Cadastre no bot com /novocartao.</p></div>
+{% else %}
+
+<section class="tiles">
+  <div class="tile {{ 'critical' if total_used * 10 >= total_limit * 9 else '' }}">
+    <div class="label">Usado dos limites</div><div class="value">{{ brl(total_used) }}</div>
+    <div class="note">de {{ brl(total_limit) }} ({{ (total_used * 100 // total_limit) if total_limit else 0 }}%)</div>
+  </div>
+  <div class="tile"><div class="label">Faturas atuais a pagar</div><div class="value">{{ brl(total_current) }}</div></div>
+  <div class="tile {{ 'warning' if total_unallocated }}"><div class="label">Sem mês definido</div><div class="value">{{ brl(total_unallocated) }}</div>
+    <div class="note">parcelas antigas que ainda vão cair nas próximas faturas</div></div>
+</section>
+
+{% if best %}
+<div class="alert ok">🛒 Se for comprar hoje, use o <strong>{{ best[0] }}</strong>: a compra só vence em {{ best[1].strftime('%d/%m/%Y') }}. (Melhor ainda: não use, os limites estão quase no fim.)</div>
+{% endif %}
+
+<section class="card">
+  <h2>Próximas faturas por cartão</h2>
+  <div id="inv-chart" style="width:100%;height:260px" role="img" aria-label="Faturas dos próximos meses, empilhadas por cartão"></div>
+  <details><summary>Ver em tabela</summary>
+    <table><thead><tr><th>Mês</th>{% for s in chart.series %}<th class="num">{{ s.name }}</th>{% endfor %}</tr></thead><tbody>
+    {% for m in chart.months %}{% set i = loop.index0 %}<tr><td>{{ m }}</td>{% for s in chart.series %}<td class="num">{{ brl(s["values"][i]) }}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table>
+  </details>
+  {% if total_unallocated %}<p class="hint">Os {{ brl(total_unallocated) }} sem mês definido não estão no gráfico. Viu no app do banco o valor de uma fatura futura? Informe abaixo, em "Informar valor do banco".</p>{% endif %}
+</section>
+<script type="application/json" data-stacked="inv-chart">{{ chart | tojson }}</script>
+
+<div class="debt-grid">
+  {% for c in cards %}
+  <section class="card" style="margin:0">
+    <div class="card-head"><h2><span class="swatch s{{ c.slot }}" aria-hidden="true"></span>{{ c.name }}</h2>
+      <span class="muted">fecha dia {{ c.closing }} · vence dia {{ c.due_day }}</span></div>
+    <div class="meter" aria-label="{{ c.usage_pct }}% do limite"><span class="{{ 'critical' if c.usage_pct >= 90 else ('warning' if c.usage_pct >= 80 else 'good') }}" style="width: {{ [c.usage_pct, 100]|min }}%"></span></div>
+    <div class="limit-line"><span>usado {{ brl(c.used) }} ({{ c.usage_pct }}%)</span><span>livre {{ brl(c.available) }}</span></div>
+    {% if c.overdue %}<div class="alert critical" style="margin:8px 0 0">🚨 Fatura vencida sem pagar: {{ brl(c.overdue) }}. Vai para o rotativo.</div>{% endif %}
+    <div class="kv">
+      {% for u in c.upcoming %}
+      <span>{{ u.ref }} <small class="muted">vence {{ u.due.strftime('%d/%m') }}{{ ' · banco' if u.informed }}</small></span><span class="v">{{ brl(u.remaining) }}</span>
+      {% endfor %}
+      {% if c.unallocated %}<span class="muted">sem mês definido</span><span class="v muted">{{ brl(c.unallocated) }}</span>{% endif %}
+    </div>
+    <details class="more">
+      <summary>Pagar fatura</summary>
+      <form class="entry-form" method="post" action="/pagar-fatura">
+        <input type="hidden" name="cartao" value="{{ c.id }}">
+        <label class="field">Valor pago
+          <input type="text" name="valor" inputmode="decimal" placeholder="{{ brl(c.current.remaining_cents)[3:] if c.current else '0,00' }}" required></label>
+        <button class="primary" type="submit">Registrar pagamento</button>
+        <p class="hint" style="margin:0">Pagar fatura não é gasto (as compras já foram contadas).</p>
+      </form>
+    </details>
+    <details class="more">
+      <summary>Informar valor do banco</summary>
+      <form class="entry-form" method="post" action="/fatura-valor">
+        <input type="hidden" name="cartao" value="{{ c.id }}">
+        <div class="row">
+          <label class="field grow">Fatura que vence em
+            <select name="vencimento">{% for d in c.dues %}<option value="{{ d.isoformat() }}">{{ d.strftime('%d/%m/%Y') }}</option>{% endfor %}</select></label>
+          <label class="field grow">Valor no app do banco
+            <input type="text" name="valor" inputmode="decimal" placeholder="1.920,00" required></label>
+        </div>
+        <button class="primary" type="submit">Salvar valor</button>
+        <p class="hint" style="margin:0">O mesmo que /fatura nome valor: a diferença sai do "sem mês definido".</p>
+      </form>
+    </details>
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if cards %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/stacked.js"></script>
+{% endif %}
+{% endblock %}

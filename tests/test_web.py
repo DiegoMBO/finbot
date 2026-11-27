@@ -375,3 +375,83 @@ def test_detalhe_da_divida(env):
     # sem parcela: a projeção mostra 12 meses crescendo (1.389,31 no 1º; 3.239,36 no 12º)
     assert [p["cents"] for p in d["projection"]][:1] == [138_931]
     assert d["projection"][-1]["cents"] == 323_936
+
+
+# --- etapa 4: cartões e salário ----------------------------------------------------
+
+
+def test_tela_de_cartoes_feita_a_mao(env):
+    conn, client = env
+    from finbot.web import cards_view
+
+    d = cards_view.cards_page(conn, TODAY)
+    # usado 9.594,54; fatura atual (vence 10/12) 2.092,84; jan 1.814,86;
+    # sem mês = 9.594,54 − 2.092,84 − 1.814,86 = 5.686,84
+    assert (d["total_used"], d["total_current"], d["total_unallocated"]) == (
+        959_454, 209_284, 568_684,
+    )  # fmt: skip
+    assert d["chart"] == {
+        "months": ["dez/2026", "jan/2027"],
+        "series": [{"name": "Nubank", "slot": 1, "values": [209_284, 181_486]}],
+    }
+    # Compra hoje (27/11) no Nubank (fecha dia 3): vence em 10/12
+    assert d["best"] == ("Nubank", date(2026, 12, 10))
+    login(client)
+    html = client.get("/cartoes").text
+    assert "Próximas faturas por cartão" in html and "R$ 5.686,84" in html
+
+
+def test_pagar_fatura_e_informar_valor_do_banco(env):
+    conn, client = env
+    login(client)
+    card = cc.list_cards(conn)[0]
+    r = client.post("/pagar-fatura", data={"cartao": card.id, "valor": "1000"})
+    assert "Pagamento de R$ 1.000,00 no Nubank" in r.text  # mesmo texto do bot
+    assert cc.list_cards(conn)[0].used_cents == 859_454
+    # Fatura de janeiro no banco: 2.000,00 (o bot sabia 1.814,86). Os 185,14 a mais
+    # saem do "sem mês definido" (5.686,84 -> 5.501,70); o usado não muda.
+    r = client.post(
+        "/fatura-valor", data={"cartao": card.id, "vencimento": "2027-01-10", "valor": "2.000"}
+    )
+    assert "vence em 10/01/2027: R$ 2.000,00" in r.text
+    assert cc.unallocated_cents(conn, cc.list_cards(conn)[0]) == 550_170
+    assert cc.list_cards(conn)[0].used_cents == 859_454
+    r = client.post("/fatura-valor", data={"cartao": card.id, "vencimento": "x", "valor": "1"})
+    assert "Não registrei" in r.text
+
+
+def test_tela_de_salario_feita_a_mao(env):
+    conn, client = env
+    from finbot.web import salary_view
+
+    d = salary_view.salary_page(conn, TODAY)
+    rows = {label: value for label, value, _ in d["slip_rows"]}
+    # Holerite de nov (cai 30/11): 4.500 − INSS 431,51 − IR 0 − adiantamento 1.800
+    # = 2.268,49; − consignado 793,21 = 1.475,28 na conta
+    assert d["slip_label"] == "nov/2026"
+    assert rows["INSS"] == 43_151 and rows["Adiantamento já pago"] == 180_000
+    assert rows["Líquido"] == 226_849 and rows["Cai na conta"] == 147_528
+    series = {s["name"]: s["values"] for s in d["chart"]["series"]}
+    assert d["chart"]["months"][:2] == ["nov/2026", "dez/2026"]
+    assert series["Salário"][:2] == [147_528, 147_528]
+    assert series["13º"][:2] == [93_750, 113_431]  # 1ª em 30/11; 2ª em 18/12
+    assert series["Adiantamento"][:2] == [0, 180_000]
+    login(client)
+    html = client.get("/salario").text
+    assert "Holerite de nov/2026" in html and "R$ 1.475,28" in html
+
+
+def test_registrar_horas_extras_pelo_app(env):
+    conn, client = env
+    login(client)
+    r = client.post("/horas-extras", data={"data": "2026-11-20", "horas": "2", "minutos": "30"})
+    assert "2h30 extras (50%) em 20/11/2026" in r.text
+    assert "nov/2026" in r.text and "2h30" in r.text
+    [entry] = salary.overtime_entries(conn)
+    assert (entry.minutes, entry.pct) == (150, 50)
+    r = client.post("/horas-extras", data={"data": "2026-11-29", "horas": "1"})
+    assert "Não registrei" in r.text  # data no futuro
+    # desfazer (a mesma regra do /desfazer apaga a hora extra mais recente)
+    r = client.post("/desfazer", data={"voltar": "/salario"})
+    assert "2h30 extras de 20/11/2026" in r.text
+    assert salary.overtime_entries(conn) == []

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Salário · finbot{% endblock %}
+
+{% block content %}
+<h1>Salário</h1>
+{% if flash %}<div class="alert ok" role="status" style="white-space:pre-line">{{ flash }}</div>{% endif %}
+
+{% if not ready %}
+<div class="card"><p>Salário ainda não cadastrado. Cadastre no bot com /salario.</p></div>
+{% else %}
+
+<section class="tiles">
+  <div class="tile"><div class="label">Bruto</div><div class="value">{{ brl(profile.gross_cents) }}</div>
+    <div class="note">{{ profile.weekly_hours }}h semanais · hora {{ brl(hourly) }}</div></div>
+  <div class="tile"><div class="label">Líquido por mês</div><div class="value">{{ brl(net_month) }}</div>
+    <div class="note">antes do consignado, sem horas extras</div></div>
+  <div class="tile"><div class="label">Quando cai</div><div class="value" style="font-size:18px">{{ payday }}</div>
+    <div class="note">{% if profile.advance_pct %}adiantamento {{ profile.advance_pct }}% no dia {{ profile.advance_day }} · {% endif %}13º em {{ schedule }}</div></div>
+</section>
+
+<section class="card">
+  <h2>O que cai na conta nos próximos meses</h2>
+  <div id="pay-chart" style="width:100%;height:240px" role="img" aria-label="Entradas por mês, por tipo"></div>
+  <details><summary>Ver em tabela</summary>
+    <table><thead><tr><th>Mês</th>{% for s in chart.series %}<th class="num">{{ s.name }}</th>{% endfor %}</tr></thead><tbody>
+    {% for m in chart.months %}{% set i = loop.index0 %}<tr><td>{{ m }}</td>{% for s in chart.series %}<td class="num">{{ brl(s["values"][i]) }}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table>
+  </details>
+  <p class="hint">Valores que caem na conta (o consignado já descontado).</p>
+</section>
+<script type="application/json" data-stacked="pay-chart">{{ chart | tojson }}</script>
+
+<div class="cols">
+  {% if slip %}
+  <section class="card">
+    <h2>Holerite de {{ slip_label }} <small class="muted">cai em {{ slip.pay_date.strftime('%d/%m/%Y') }}</small></h2>
+    <table class="slip"><tbody>
+      {% for label, value, kind in slip_rows %}
+      <tr class="{{ kind }}"><td>{{ '− ' if kind == 'minus' else ('+ ' if kind == 'plus' else '') }}{{ label }}</td><td class="v">{{ brl(value) }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+    <p class="hint">Estimativa com as tabelas de INSS e IR do ano: confira com o holerite da empresa.</p>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Próximos pagamentos</h2>
+    <ul class="list">
+      {% for u in upcoming %}
+      <li><span class="when">{{ u.pay_date.strftime('%d/%m') }}</span><span class="what">{{ u.label }}{% if u.consigned %} <small>já sem o consignado</small>{% endif %}</span><span class="amount in">+{{ brl(u.received_cents) }}</span></li>
+      {% else %}<li class="empty">Nada nos próximos 3 meses.</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <h2>Horas extras</h2>
+  <p class="hint" style="margin-top:0">Hora extra {{ profile.overtime_pct }}% = {{ brl(hourly_ot) }} · domingo/feriado {{ profile.holiday_pct }}% = {{ brl(hourly_holiday) }} · caem {{ profile.overtime_lag_months }} mês(es) depois, com o DSR.</p>
+  {% if overtime %}
+  <ul class="list">
+    {% for o in overtime %}
+    <li><span class="when">{{ o.month }}</span><span class="what">{{ o.hours }} <small>{{ brl(o.base) }} + DSR {{ brl(o.dsr) }} · {{ 'pago' if o.received else 'cai' }} em {{ o.pay.strftime('%d/%m/%Y') }}</small></span><span class="amount">{{ brl(o.total) }}</span></li>
+    {% endfor %}
+  </ul>
+  {% if to_receive %}<p class="hint">A receber (bruto): {{ brl(to_receive) }}</p>{% endif %}
+  {% endif %}
+  <form class="entry-form" method="post" action="/horas-extras" style="margin-top:10px">
+    <div class="row">
+      <label class="field">Dia<input type="date" name="data" value="{{ today.isoformat() }}" max="{{ today.isoformat() }}"></label>
+      <label class="field">Horas<input type="number" name="horas" min="0" max="24" value="1" inputmode="numeric"></label>
+      <label class="field">Minutos<input type="number" name="minutos" min="0" max="59" step="5" value="0" inputmode="numeric"></label>
+      <label class="field grow">Tipo
+        <select name="tipo"><option value="normal">Dia normal ({{ profile.overtime_pct }}%)</option><option value="feriado">Domingo/feriado ({{ profile.holiday_pct }}%)</option></select></label>
+    </div>
+    <button class="primary" type="submit">Registrar horas extras</button>
+  </form>
+</section>
+
+<div class="cols">
+  <section class="card"><h2>13º salário</h2><p class="prose">{{ thirteenth_text.split('\n', 1)[1] if '\n' in thirteenth_text else thirteenth_text }}</p></section>
+  <section class="card"><h2>Férias</h2><p class="prose">{{ vacations_text.split('\n', 1)[1] if '\n' in vacations_text else vacations_text }}</p></section>
+</div>
+<p class="hint">Mudar dados do salário, reajuste, descontos, 13º recebido e férias: no bot (/editarsalario, /decimo, /ferias).</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if ready %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/stacked.js"></script>
+{% endif %}
+{% endblock %}
