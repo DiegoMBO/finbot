@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finbot"
+version = "0.1.0"
+description = "Bot de Telegram pessoal para controle de finanças"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # [job-queue] traz o agendador usado pelos lembretes de vencimento.
+    "python-telegram-bot[job-queue]>=21.6,<23",
+    "python-dotenv>=1.0",
+    # No Windows o Python não traz o banco de fusos horários; o tzdata fornece
+    # os dados para ZoneInfo("America/Sao_Paulo") funcionar.
+    "tzdata>=2024.1",
+    # /grafico: gera a imagem da evolução do saldo (sem janela: backend "Agg").
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+# Layout "src/": o código fica em src/finbot. Isso obriga a instalar o pacote
+# (pip install -e .) e evita que os testes importem arquivos "soltos" por acaso.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+finbot = ["db/migrations/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F: erros básicos | I: ordem dos imports | B: bugs comuns | UP: sintaxe moderna
+select = ["E", "F", "I", "B", "UP"]

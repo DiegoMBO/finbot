@@ -1,0 +1,7 @@
+# Scripts de servidor PRECISAM de fim de linha Unix (LF). Com CRLF do Windows,
+# o bash quebra com erros como "$'\r': command not found".
+*.sh text eol=lf
+
+# O resto: o git normaliza para LF no repositório e escolhe o fim de linha
+# certo para cada sistema ao baixar.
+* text=auto
