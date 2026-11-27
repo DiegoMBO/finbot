@@ -86,7 +86,45 @@ def _item_line(i: cash.Item) -> str:
     return f"   {i.status} {day}{i.label}: {format_brl(i.amount_cents)}{note}{late}"
 
 
-def format_statement(s: Statement, today: date) -> str:
+def _dm(d: date) -> str:
+    return f"{d:%d/%m}"
+
+
+def _format_outlook(o: cash.Outlook) -> list[str]:
+    lines = []
+    if o.committed:
+        until = (
+            f"até o próximo dinheiro ({_dm(o.next_income_day)})"
+            if o.next_income_day
+            else ("no mês seguinte (sem entrada prevista)")
+        )
+        lines.append(f"   Já comprometido {until}: −{format_brl(o.committed_cents)}")
+        lines.append("   (" + ", ".join(f"{i.label} {_dm(i.day)}" for i in o.committed) + ")")
+    icon = "🚨" if o.free_cents < 0 else ("⚠️" if o.free_cents < 30_000 else "✅")
+    lines.append(f"= Livre de verdade: {_signed(o.free_cents)} {icon}")
+
+    lines.append("")
+    if o.negative:
+        lines.append(f"📉 Ponto mais baixo: {_signed(o.low_cents)} em {_dm(o.low_day)}")
+        parts = [
+            f"de {_dm(a)} a {_dm(b)}"
+            if b and b != a
+            else (f"em {_dm(a)}" if b else f"a partir de {_dm(a)}")
+            for a, b in o.negative
+        ]
+        lines.append("   Fica negativo " + " e ".join(parts))
+        lines.append(
+            "   Sem dinheiro nesses dias, uma conta atrasa ou uma fatura vai para o rotativo."
+        )
+    else:
+        lines.append(
+            f"📉 Ponto mais baixo: {_signed(o.low_cents)} em {_dm(o.low_day)} "
+            f"(não fica negativo até {_dm(o.until)})"
+        )
+    return lines
+
+
+def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -> str:
     title = month_label(s.year, s.month)
     lines = [f"📒 {title[0].upper()}{title[1:]}"]
     if s.start_cents is not None:
@@ -102,7 +140,11 @@ def format_statement(s: Statement, today: date) -> str:
         lines += [_item_line(i) for i in items] or ["   nada neste mês"]
 
     lines.append("")
-    if s.end_cents is not None:
+    if s.end_cents is not None and o is not None:
+        lines.append(f"= Fim do mês: {_signed(s.end_cents)}")
+        lines.append(f"   (resultado só deste mês: {_signed(s.result_cents)})")
+        lines += _format_outlook(o)
+    elif s.end_cents is not None:
         icon = "🚨" if s.end_cents < 0 else "✅"
         lines.append(f"= Fim do mês: {_signed(s.end_cents)} {icon}")
         lines.append(f"   (resultado só deste mês: {_signed(s.result_cents)})")
@@ -165,7 +207,12 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         s = cash.statement(conn, today.year, today.month, today, tz, settings.extra_holidays)
         await message.reply_text(
             f"✅ Saldo inicial: {_signed(amount)} (agora). Tudo o que você registrar a "
-            "partir de agora mexe nesse saldo.\n\n" + format_statement(s, today)
+            "partir de agora mexe nesse saldo.\n\n"
+            + format_statement(
+                s,
+                today,
+                cash.outlook(conn, today.year, today.month, today, tz, settings.extra_holidays),
+            )
         )
         return
 
@@ -178,4 +225,5 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await message.reply_text(f"Consigo prever até {cash.MAX_MONTHS_AHEAD} meses à frente.")
         return
     s = cash.statement(conn, year, month, today, tz, settings.extra_holidays)
-    await message.reply_text(format_statement(s, today))
+    o = cash.outlook(conn, year, month, today, tz, settings.extra_holidays)
+    await message.reply_text(format_statement(s, today, o))

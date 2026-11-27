@@ -402,6 +402,16 @@ previsto, ⚠️ venceu e não foi registrado (conta como a pagar).
 - **Dívida sem parcela** (cheque especial): os juros aumentam a dívida, mas não
   saem da conta; aparece como aviso no fim, fora da conta.
 
+O **fim do mês** sozinho engana: o salário do dia 30 já tem dono (as contas do
+começo do mês seguinte). Por isso o extrato mostra também:
+
+- **Já comprometido até o próximo dinheiro:** as contas que vencem entre o fim do
+  mês e a próxima entrada (ex.: o vale do dia 15).
+- **Livre de verdade** = fim do mês − comprometido (🚨 negativo, ⚠️ menos de R$ 300).
+- **Ponto mais baixo:** o saldo é calculado dia a dia (no mesmo dia, o dinheiro
+  entra antes de sair) até o fim do mês seguinte, com os dias em que a conta
+  fica negativa.
+
 ### Pagamento quinzenal
 
 Adiantamento no dia 15 e o resto no dia 30 do mesmo mês: no cadastro responda

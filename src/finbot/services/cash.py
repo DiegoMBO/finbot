@@ -24,7 +24,7 @@ from __future__ import annotations
 import calendar
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from finbot.parsing.period import MONTH_NAMES
@@ -285,6 +285,18 @@ def statement(
     informado: o fim de um é o começo do outro. Sem saldo inicial, cada mês é
     calculado sozinho, a partir do mês atual.
     """
+    return statements(conn, year, month, today, tz, extra)[-1]
+
+
+def statements(
+    conn: sqlite3.Connection,
+    year: int,
+    month: int,
+    today: date,
+    tz: ZoneInfo,
+    extra=(),
+) -> list[Statement]:
+    """Todos os extratos encadeados até (year, month), o último é o pedido."""
     anchor = get_anchor(conn)
     target = (year, month)
     current = (today.year, today.month)
@@ -293,8 +305,9 @@ def statement(
     if months_between(base, target) < 0 or (anchor is None and target < current):
         # Mês passado (ou antes do saldo inicial): só o que foi registrado.
         start, end = transactions.month_bounds(year, month, tz)
-        return Statement(year, month, None, "", actual_items(conn, start, end, tz))
+        return [Statement(year, month, None, "", actual_items(conn, start, end, tz))]
 
+    chain: list[Statement] = []
     balances = {d.id: d.balance_cents for d in debts.list_active(conn) if d.kind != "cartao"}
     start_cents = anchor.amount_cents if anchor else None
     label = f"Na conta em {anchor_day:%d/%m} (você informou)" if anchor_day else ""
@@ -316,9 +329,105 @@ def statement(
         planned, growing = planned_items(conn, y, m, plan_from, today, balances, tz, extra)
         items = sorted(actual + planned, key=lambda i: (i.day is None, i.day or date.max))
         result = Statement(y, m, start_cents, label, items, growing)
+        chain.append(result)
         if ym == target:
-            return result
+            return chain
         if start_cents is not None:
             start_cents = result.end_cents
             label = f"Veio de {MONTH_NAMES[m - 1]}"
         ym = finance.add_months(y, m, 1)
+
+
+# --- o que já está comprometido e o ponto mais baixo -----------------------------
+
+
+def _signed(item: Item) -> int:
+    return item.amount_cents if item.group == INCOME else -item.amount_cents
+
+
+@dataclass(frozen=True)
+class Outlook:
+    """O que o "fim do mês" não mostra sozinho.
+
+    O dinheiro do salário do dia 30 já tem dono: as contas que vencem antes do
+    próximo dinheiro entrar. "Livre de verdade" = fim do mês − essas contas.
+    O ponto mais baixo mostra se a conta fica negativa no meio do caminho.
+    """
+
+    next_income_day: date | None  # quando entra o próximo dinheiro depois do mês
+    committed: list[Item]  # contas entre o fim do mês e o próximo dinheiro
+    free_cents: int  # fim do mês − comprometido
+    low_day: date
+    low_cents: int
+    negative: list[tuple[date, date | None]]  # períodos no negativo (None = segue negativo)
+    until: date  # até onde olhei
+
+    @property
+    def committed_cents(self) -> int:
+        return sum(i.amount_cents for i in self.committed)
+
+
+def outlook(
+    conn: sqlite3.Connection, year: int, month: int, today: date, tz: ZoneInfo, extra=()
+) -> Outlook | None:
+    """Só faz sentido com saldo inicial e para o mês atual ou os próximos."""
+    if (year, month) < (today.year, today.month):
+        return None
+    ny, nm = finance.add_months(year, month, 1)
+    chain = statements(conn, ny, nm, today, tz, extra)
+    if chain[0].start_cents is None or len(chain) < 2:
+        return None
+    month_stmt, next_stmt = chain[-2], chain[-1]
+    month_end = _due(year, month, None)
+
+    # 1. Saldo dia a dia. O que já aconteceu (✅) e o atrasado (⚠️) contam hoje;
+    #    o previsto, no dia dele. No mesmo dia, o dinheiro entra antes de sair.
+    balance = chain[0].start_cents
+    events: list[tuple[date, int, int]] = []
+    for s in chain:
+        for i in s.items:
+            when = today if i.status != PLANNED or i.day is None else i.day
+            events.append((when, 0 if i.group == INCOME else 1, _signed(i)))
+    events.sort()
+    first_day = max(today, date(year, month, 1))
+    until = _due(ny, nm, None)
+    # Antes da janela: só soma. Dentro dela: um ponto por dia (saldo no fim do dia).
+    points: list[tuple[date, int]] = []
+    for when, _, value in events:
+        if when > until:
+            break
+        balance += value
+        if when < first_day:
+            continue
+        if points and points[-1][0] == when:
+            points[-1] = (when, balance)
+        else:
+            points.append((when, balance))
+    if not points or points[0][0] != first_day:
+        before = (
+            points[0][1] - sum(v for w, _, v in events if w == points[0][0]) if points else balance
+        )
+        points.insert(0, (first_day, before))
+    low_day, low_cents = min(points, key=lambda p: (p[1], p[0]))
+
+    negative: list[tuple[date, date | None]] = []
+    start_neg = None
+    for day, value in points:
+        if value < 0 and start_neg is None:
+            start_neg = day
+        elif value >= 0 and start_neg is not None:
+            negative.append((start_neg, day - timedelta(days=1)))
+            start_neg = None
+    if start_neg is not None:
+        negative.append((start_neg, None))
+
+    # 2. Comprometido: contas do mês seguinte que vencem antes do próximo dinheiro
+    incomes = [i.day for i in next_stmt.items if i.group == INCOME and i.day and i.day > month_end]
+    next_income = min(incomes) if incomes else None
+    committed = [
+        i for i in next_stmt.items
+        if i.group != INCOME and i.status == PLANNED and i.day
+        and (next_income is None or i.day < next_income)
+    ]  # fmt: skip
+    free = month_stmt.end_cents - sum(i.amount_cents for i in committed)
+    return Outlook(next_income, committed, free, low_day, low_cents, negative, until)
