@@ -73,6 +73,13 @@ class Statement:
     start_label: str  # "Na conta em 27/11 (você informou)" / "Veio de novembro"
     items: list[Item] = field(default_factory=list)
     growing: list[Growing] = field(default_factory=list)
+    # Parcelas dos cartões que ainda não estão em nenhuma fatura conhecida
+    # ("sem mês definido"): vão cair nas próximas faturas, que podem ser maiores.
+    undated_cards: list[tuple[str, int]] = field(default_factory=list)
+
+    @property
+    def undated_cents(self) -> int:
+        return sum(v for _, v in self.undated_cards)
 
     def total(self, group: str) -> int:
         return sum(i.amount_cents for i in self.items if i.group == group)
@@ -309,6 +316,11 @@ def statements(
 
     chain: list[Statement] = []
     balances = {d.id: d.balance_cents for d in debts.list_active(conn) if d.kind != "cartao"}
+    undated = [
+        (card.name, value)
+        for card in cc.list_cards(conn)
+        if (value := cc.unallocated_cents(conn, card)) > 0
+    ]
     start_cents = anchor.amount_cents if anchor else None
     label = f"Na conta em {anchor_day:%d/%m} (você informou)" if anchor_day else ""
     ym = base
@@ -328,7 +340,7 @@ def statements(
             plan_from = date(y, m, 1)
         planned, growing = planned_items(conn, y, m, plan_from, today, balances, tz, extra)
         items = sorted(actual + planned, key=lambda i: (i.day is None, i.day or date.max))
-        result = Statement(y, m, start_cents, label, items, growing)
+        result = Statement(y, m, start_cents, label, items, growing, undated)
         chain.append(result)
         if ym == target:
             return chain

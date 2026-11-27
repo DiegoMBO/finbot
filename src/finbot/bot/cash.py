@@ -160,6 +160,16 @@ def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -
             lines.append("Para ver quanto sobra de verdade, informe o que tem na conta:")
             lines.append("/extrato inicial 350")
 
+    if s.undated_cards:
+        parts = " · ".join(f"{name} {format_brl(v)}" for name, v in s.undated_cards)
+        lines += [
+            "",
+            f"⚠️ Cartões: {format_brl(s.undated_cents)} de parcelas ainda sem mês definido",
+            f"   ({parts})",
+            "   Elas vão cair nas próximas faturas, que podem ser maiores do que aparece aqui.",
+            "   Quando cada fatura fechar, informe o valor real: /fatura nome valor",
+        ]
+
     if s.growing:
         lines += ["", "📈 Sem parcela (os juros aumentam a dívida, não saem da conta):"]
         for g in s.growing:

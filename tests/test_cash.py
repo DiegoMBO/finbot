@@ -169,6 +169,17 @@ def test_fica_negativo_no_meio_do_caminho(conn):
     assert "Fica negativo de 10/12 a 14/12" in text
 
 
+def test_aviso_das_parcelas_sem_mes_definido(conn):
+    # Nubank: usado 9.594,54 − faturas dez 2.092,84 − jan 1.814,86 = 5.686,84 sem mês
+    s = cash.statement(conn, 2026, 12, TODAY, SP)
+    assert s.undated_cards == [("Nubank", 568_684)]
+    text = cash_bot.format_statement(s, TODAY)
+    assert (
+        "⚠️ Cartões: R$ 5.686,84 de parcelas ainda sem mês definido\n   (Nubank R$ 5.686,84)" in text
+    )
+    assert "/fatura nome valor" in text
+
+
 def test_sem_saldo_inicial_nao_tem_previsao_dia_a_dia(conn):
     assert cash.outlook(conn, 2026, 11, TODAY, SP) is None
     cash.set_anchor(conn, 200, NOW)
