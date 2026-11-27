@@ -288,3 +288,15 @@ def test_voltar_so_para_o_proprio_app(env):
     r = client.post("/registrar", data={"valor": "1", "voltar": "//site-malicioso.com"},
                     follow_redirects=False)  # fmt: skip
     assert r.headers["location"] == "/"
+
+
+def test_extrato_do_app_destaca_o_cheque_especial(env):
+    conn, client = env
+    cash.set_anchor(conn, 35_000, NOW)
+    login(client)
+    html = client.get("/extrato").text
+    assert html.index("🔥 Prioridade") < html.index("💰 Entra")
+    assert "+R$ 102,91" in html and "R$ 2.041,35" in html and "R$ 3.239,36" in html
+    assert "151,8% ao ano" in html
+    # sobram 169,94 até 15/12: sugere mandar para o santander
+    assert "mande até <strong>R$ 169,94</strong> para o santander" in html

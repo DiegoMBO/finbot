@@ -239,7 +239,41 @@ def test_texto_do_extrato(conn):
     assert "   ⏳ 30/11 clt-nubank: R$ 793,21 (descontado no salário)" in text
     # −120 + 2.412,78 = 2.292,78
     assert "= Fim do mês: R$ 2.292,78 ✅" in text
-    assert "santander: R$ 1.286,40 + R$ 102,91 de juros neste mês" in text
+    # O cheque especial vem em destaque, logo depois do saldo de partida
+    assert text.index("🔥 PRIORIDADE: santander cresce R$ 102,91 neste mês") < text.index(
+        "💰 Entra"
+    )
+    assert "Deve R$ 1.286,40 a 8% ao mês (≈ 151,8% ao ano)" in text
+    assert "Sem pagar, vira R$ 2.041,35 em 6 meses e R$ 3.239,36 em 12." in text
+    assert "Cada R$ 100 que você abate economiza R$ 8,00 por mês" in text
+
+
+def test_projecao_do_cheque_especial_feita_a_mao():
+    # 1.286,40 a 8% a.m., juros sobre juros, arredondando cada mês:
+    # 1.389,31 · 1.500,45 · 1.620,49 · 1.750,13 · 1.890,14 · 2.041,35 (6 meses)
+    # 2.204,66 · 2.381,03 · 2.571,51 · 2.777,23 · 2.999,41 · 3.239,36 (12 meses)
+    g = cash.Growing("santander", 128_640, 10_291, 80_000)
+    assert [g.projected(n) for n in (1, 2, 6, 12)] == [138_931, 150_045, 204_135, 323_936]
+    assert g.annual_ppm == 1_518_170  # (1,08)^12 − 1 = 151,817%
+    assert cash_bot.pct(g.rate_ppm) == "8%" and cash_bot.pct(g.annual_ppm) == "151,8%"
+    # Com o que sobra, até quitar: 1.286,40 + 102,91 = 1.389,31 no máximo
+    assert g.suggested_payment(16_994) == 16_994
+    assert g.suggested_payment(500_000) == 138_931
+    assert g.suggested_payment(-100) == 0
+
+
+def test_sugestao_de_mandar_a_sobra_para_o_cheque_especial(conn):
+    # Com 350: sobram 169,94 até 15/12 -> mandar 169,94 para o santander
+    # 169,94 × 8% = 13,5952 -> economiza R$ 13,60 de juros por mês
+    cash.set_anchor(conn, 35_000, NOW)
+    s = cash.statement(conn, 2026, 11, TODAY, SP)
+    o = cash.outlook(conn, 2026, 11, TODAY, SP)
+    text = cash_bot.format_statement(s, TODAY, o)
+    assert "💡 Com o que sobra, mande até R$ 169,94 para o santander (economiza R$ 13,60" in text
+    # Quando falta, não sugere
+    cash.set_anchor(conn, 200, NOW)
+    o = cash.outlook(conn, 2026, 11, TODAY, SP)
+    assert "💡" not in cash_bot.format_statement(s, TODAY, o)
 
 
 @pytest.mark.parametrize(

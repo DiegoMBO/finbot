@@ -277,7 +277,9 @@ def statement_page(
         rows = [i for i in s.items if i.group == group]
         groups.append({"key": group, "title": title, "total": s.total(group), "items": rows})
     out_total = s.total(cash.DEBT) + s.total(cash.INVOICE) + s.total(cash.EXPENSE)
+    priority = priority_debts(s, o)
     return {
+        "priority": priority,
         "nav": month_nav(year, month, today, cash.MAX_MONTHS_AHEAD),
         "s": s,
         "o": o,
@@ -286,3 +288,29 @@ def statement_page(
         "out_total": out_total,
         "today": today,
     }
+
+
+def priority_debts(s: cash.Statement, o: cash.Outlook | None) -> list[dict]:
+    """Dívidas que crescem sozinhas (cheque especial), da mais cara para a mais barata,
+    com as contas para o destaque do Extrato."""
+    from finbot.bot.cash import pct
+    from finbot.services import finance
+
+    found = []
+    for g in sorted(s.growing, key=lambda x: -x.rate_ppm):
+        pay = g.suggested_payment(o.free_cents) if o and o.free_cents > 0 and not found else 0
+        found.append(
+            {
+                "name": g.name,
+                "balance": g.balance_cents,
+                "interest": g.interest_cents,
+                "rate": pct(g.rate_ppm),
+                "annual": pct(g.annual_ppm),
+                "in6": g.projected(6),
+                "in12": g.projected(12),
+                "per100": g.rate_ppm // 100,  # juros de R$ 100 em 1 mês, em centavos
+                "pay": pay,
+                "pay_saves": finance.monthly_interest(pay, g.rate_ppm) if pay else 0,
+            }
+        )
+    return found

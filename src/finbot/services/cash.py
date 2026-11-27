@@ -63,6 +63,22 @@ class Growing:
     name: str
     balance_cents: int  # no começo do mês
     interest_cents: int  # juros do mês
+    rate_ppm: int = 0  # taxa ao mês
+
+    @property
+    def annual_ppm(self) -> int:
+        return finance.annual_equivalent_ppm(self.rate_ppm)
+
+    def projected(self, months: int) -> int:
+        """Saldo depois de `months` meses sem pagar nada (juros sobre juros)."""
+        balance = self.balance_cents
+        for _ in range(months):
+            balance += finance.monthly_interest(balance, self.rate_ppm)
+        return balance
+
+    def suggested_payment(self, free_cents: int) -> int:
+        """Quanto mandar para ela com o que sobra: tudo o que sobrar, até quitar."""
+        return max(min(free_cents, self.balance_cents + self.interest_cents), 0)
 
 
 @dataclass(frozen=True)
@@ -244,7 +260,9 @@ def planned_items(
             continue
         if not d.payment_cents:
             if interest[d.id]:
-                growing.append(Growing(d.name, balances[d.id] - interest[d.id], interest[d.id]))
+                growing.append(
+                    Growing(d.name, balances[d.id] - interest[d.id], interest[d.id], d.rate_ppm)
+                )
             continue
         if d.id in consigned_ids:
             continue  # veio com o salário

@@ -136,11 +136,32 @@ def _format_outlook(o: cash.Outlook) -> list[str]:
     return lines
 
 
+def pct(ppm: int) -> str:
+    """80000 -> '8%'; 1518170 -> '151,8%' (1 casa, sem zeros à toa)."""
+    text = f"{ppm / 10_000:.1f}".replace(".", ",")
+    return (text[:-2] if text.endswith(",0") else text) + "%"
+
+
+def format_priority(g: cash.Growing) -> list[str]:
+    """Dívida que cresce sozinha (cheque especial): em destaque, no topo do extrato."""
+    return [
+        f"🔥 PRIORIDADE: {g.name} cresce {format_brl(g.interest_cents)} neste mês",
+        f"   Deve {format_brl(g.balance_cents)} a {pct(g.rate_ppm)} ao mês "
+        f"(≈ {pct(g.annual_ppm)} ao ano), sem parcela: os juros entram na dívida.",
+        f"   Sem pagar, vira {format_brl(g.projected(6))} em 6 meses e "
+        f"{format_brl(g.projected(12))} em 12.",
+        f"   Cada R$ 100 que você abate economiza {format_brl(g.rate_ppm // 100)} por mês. "
+        "É a primeira dívida a quitar com o que sobrar.",
+    ]
+
+
 def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -> str:
     title = month_label(s.year, s.month)
     lines = [f"📒 {title[0].upper()}{title[1:]}"]
     if s.start_cents is not None:
         lines.append(f"{s.start_label}: {_signed(s.start_cents)}")
+    for g in s.growing:
+        lines += [""] + format_priority(g)
     for group, name in GROUPS:
         items = sorted(
             (i for i in s.items if i.group == group), key=lambda i: (i.day is None, i.day or today)
@@ -156,6 +177,14 @@ def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -
         lines.append(f"= Fim do mês: {_signed(s.end_cents)}")
         lines.append(f"   (resultado só deste mês: {_signed(s.result_cents)})")
         lines += _format_outlook(o)
+        if s.growing and o.free_cents > 0:
+            g = max(s.growing, key=lambda x: x.rate_ppm)  # a mais cara primeiro
+            pay = g.suggested_payment(o.free_cents)
+            lines.append(
+                f"💡 Com o que sobra, mande até {format_brl(pay)} para o {g.name} "
+                f"(economiza {format_brl(finance.monthly_interest(pay, g.rate_ppm))} de juros "
+                "por mês)."
+            )
     elif s.end_cents is not None:
         icon = "🚨" if s.end_cents < 0 else "✅"
         lines.append(f"= Fim do mês: {_signed(s.end_cents)} {icon}")
@@ -181,14 +210,6 @@ def format_statement(s: Statement, today: date, o: cash.Outlook | None = None) -
             "   Elas vão cair nas próximas faturas, que podem ser maiores do que aparece aqui.",
             "   Quando cada fatura fechar, informe o valor real: /fatura nome valor",
         ]
-
-    if s.growing:
-        lines += ["", "📈 Sem parcela (os juros aumentam a dívida, não saem da conta):"]
-        for g in s.growing:
-            lines.append(
-                f"   {g.name}: {format_brl(g.balance_cents)} + {format_brl(g.interest_cents)} "
-                "de juros neste mês"
-            )
 
     has_late = any(i.status == LATE for i in s.items)
     legend = f"{DONE} feito · ⏳ previsto" + (f" · {LATE} atrasado" if has_late else "")

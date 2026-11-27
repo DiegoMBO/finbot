@@ -7,6 +7,29 @@
   {% if nav.next %}<a class="arrow" href="/extrato?mes={{ nav.next }}" aria-label="Mês seguinte">›</a>{% else %}<span class="arrow off">›</span>{% endif %}
 </div>
 
+{% for p in priority %}
+<section class="priority" aria-label="Dívida prioritária">
+  <div class="priority-head">
+    <span class="badge">🔥 Prioridade</span>
+    <strong>{{ p.name }}</strong>
+  </div>
+  <div class="priority-main">
+    <div><div class="label">Deve</div><div class="big">{{ brl(p.balance) }}</div></div>
+    <div><div class="label">Cresce neste mês</div><div class="big neg">+{{ brl(p.interest) }}</div></div>
+  </div>
+  <p>{{ p.rate }} ao mês (≈ {{ p.annual }} ao ano), sem parcela: os juros entram na dívida todo mês.</p>
+  <div class="growth" aria-label="Se não pagar nada">
+    <span>{{ "Hoje" if nav.current else "No começo do mês" }} <b>{{ brl(p.balance) }}</b></span>
+    <span>→ 6 meses <b>{{ brl(p.in6) }}</b></span>
+    <span>→ 12 meses <b>{{ brl(p.in12) }}</b></span>
+  </div>
+  <p class="hint">Cada R$ 100 que você abate economiza {{ brl(p.per100) }} por mês. É a primeira dívida a quitar com o que sobrar.</p>
+  {% if p.pay %}
+  <div class="alert ok">💡 Este mês sobram {{ brl(o.free_cents) }}: mande até <strong>{{ brl(p.pay) }}</strong> para o {{ p.name }} (economiza {{ brl(p.pay_saves) }} de juros por mês).</div>
+  {% endif %}
+</section>
+{% endfor %}
+
 <section class="tiles">
   {% if s.start_cents is not none %}
   <div class="tile"><div class="label">{{ s.start_label }}</div><div class="value">{{ brl(s.start_cents) }}</div></div>
@@ -62,8 +85,5 @@
 <div class="alert warning">⚠️ <strong>Cartões: {{ brl(s.undated_cents) }}</strong> de parcelas ainda sem mês definido
   ({% for name, v in s.undated_cards %}{{ name }} {{ brl(v) }}{{ ' · ' if not loop.last }}{% endfor %}). As próximas faturas podem ser maiores.</div>
 {% endif %}
-{% for gr in s.growing %}
-<p class="hint">📈 {{ gr.name }}: {{ brl(gr.balance_cents) }} + {{ brl(gr.interest_cents) }} de juros neste mês (a dívida cresce; não sai da conta).</p>
-{% endfor %}
 <p class="hint">✅ feito · ⏳ previsto · ⚠️ atrasado</p>
 {% endblock %}

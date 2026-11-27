@@ -203,3 +203,22 @@ button.link { background: none; border: 0; color: var(--accent); font: inherit; 
 .group-title span:last-child { font-variant-numeric: tabular-nums; }
 .bar-chart { width: 100%; }
 [hidden] { display: none !important; }
+
+/* Dívida prioritária (cheque especial): destaque no topo do Extrato */
+.priority {
+  background: var(--critical-soft); border: 1px solid var(--critical);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
+}
+.priority p { margin: 8px 0 0; font-size: 14px; }
+.priority-head { display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.badge {
+  background: var(--critical); color: #fff; font-size: 12px; font-weight: 700;
+  border-radius: 999px; padding: 3px 10px; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.priority-main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.priority-main .label { color: var(--text-2); font-size: 13px; }
+.priority-main .big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.priority-main .big.neg { color: var(--critical); }
+.growth { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.growth b { color: var(--critical); }
+.priority .alert { margin: 10px 0 0; }
