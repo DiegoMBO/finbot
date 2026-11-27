@@ -12,7 +12,7 @@ from datetime import date, datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from finbot.bot.debts import short_month
+from finbot.bot.debts import card_hint, short_month
 from finbot.config import Settings
 from finbot.money import AmountError, format_brl, format_percent, parse_amount
 from finbot.parsing.payment import PaymentArgsError, parse_name_and_amount
@@ -99,7 +99,8 @@ async def simulate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if len(found) != 1:
         names = ", ".join(d.name for d in (found or debts.list_active(conn))) or "nenhuma"
         problem = "Não encontrei" if not found else "Mais de uma dívida combina com"
-        await message.reply_text(f"{problem} {name!r}. Dívidas: {names}.")
+        hint = card_hint(conn, name) if not found else ""
+        await message.reply_text(f"{problem} {name!r}. Dívidas: {names}.{hint}")
         return
     d = found[0]
     simulation = finance.simulate_extra(d.balance_cents, d.rate_ppm, d.payment_cents, extra)

@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
-from finbot.bot.debts import describe_projection
+from finbot.bot.debts import card_hint, describe_projection
 from finbot.bot.texts import format_alert
 from finbot.config import Settings
 from finbot.money import format_brl
@@ -178,7 +178,8 @@ async def _find_one(message: Message, context: ContextTypes.DEFAULT_TYPE, name: 
         return found[0]
     if not found:
         names = ", ".join(d.name for d in debts.list_active(_db(context))) or "nenhuma"
-        await message.reply_text(f"Não encontrei a dívida {name!r}. Suas dívidas: {names}.")
+        hint = card_hint(_db(context), name)
+        await message.reply_text(f"Não encontrei a dívida {name!r}. Suas dívidas: {names}.{hint}")
     else:
         names = ", ".join(d.name for d in found)
         await message.reply_text(

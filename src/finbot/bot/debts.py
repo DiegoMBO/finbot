@@ -46,6 +46,15 @@ EVENT_LABELS = {
 # --- formatação (funções puras, testáveis sem Telegram) ---------------------
 
 
+def card_hint(conn: sqlite3.Connection, query: str) -> str:
+    """Se o nome procurado é de um CARTÃO (e não de uma dívida), avisa onde ver."""
+    found = cc.find(conn, query) if query.strip() else []
+    if not found:
+        return ""
+    name = found[0].name
+    return f"\n{name} é um cartão de crédito, não uma dívida: veja /cartao {name}"
+
+
 def short_month(d: date) -> str:
     """date(2028, 11, 10) -> "nov/2028"."""
     return f"{MONTH_NAMES[d.month - 1][:3]}/{d.year}"
@@ -438,7 +447,9 @@ async def show_debt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     found = debts.find(conn, query)
     if not found:
         names = ", ".join(d.name for d in debts.list_active(conn)) or "nenhuma"
-        await message.reply_text(f"Não encontrei a dívida {query!r}. Suas dívidas: {names}.")
+        await message.reply_text(
+            f"Não encontrei a dívida {query!r}. Suas dívidas: {names}.{card_hint(conn, query)}"
+        )
         return
     if len(found) > 1:
         names = ", ".join(d.name for d in found)

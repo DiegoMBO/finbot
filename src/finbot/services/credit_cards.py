@@ -28,6 +28,7 @@ from finbot.parsing.message import ParsedEntry
 from finbot.parsing.text import normalize
 from finbot.services import card_math as cm
 from finbot.services import transactions
+from finbot.services.debts import search_words
 from finbot.timeutil import from_db, to_db
 
 USER_ACTIONS = ("compra", "pagamento", "estorno")  # o que o /desfazer considera
@@ -243,11 +244,9 @@ def find(conn: sqlite3.Connection, query: str) -> list[Card]:
     exact = [c for c in cards if name_key(c.name) == wanted]
     if exact:
         return exact
-    words = wanted.split()
+    words = search_words(query)
     return [
-        c
-        for c in cards
-        if all(any(h.startswith(w) for h in name_key(c.name).split()) for w in words)
+        c for c in cards if all(any(h.startswith(w) for h in search_words(c.name)) for w in words)
     ]
 
 

@@ -7,6 +7,7 @@ para chamadas dos serviços e formatam a resposta. A lógica de verdade fica em
 
 from __future__ import annotations
 
+import difflib
 import sqlite3
 from datetime import UTC, datetime
 
@@ -84,6 +85,34 @@ def describe(t: Transaction) -> str:
     """Uma linha legível: "R$ 35,00 em alimentação (mercado)"."""
     text = f"{format_brl(t.amount_cents)} em {t.category}"
     return f"{text} ({t.description})" if t.description else text
+
+
+# Todos os comandos do bot (um teste confere que bate com os registrados em app.py).
+KNOWN_COMMANDS = (
+    "start", "ajuda", "help", "hoje", "mes", "desfazer", "orcamento", "exportar",
+    "novadivida", "editardivida", "dividas", "divida", "removerdivida", "pagar", "saldo",
+    "simular", "estrategia", "saude", "grafico", "lembretes", "cancelar",
+    "novocartao", "editarcartao", "cartoes", "cartao", "fatura", "parcelado", "estorno",
+)  # fmt: skip
+
+
+def suggest_command(typed: str) -> str | None:
+    """O comando conhecido mais parecido com o digitado ("grafica" -> "grafico")."""
+    matches = difflib.get_close_matches(typed.lower(), KNOWN_COMMANDS, n=1, cutoff=0.6)
+    return matches[0] if matches else None
+
+
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Comando que não existe: em vez de silêncio, sugere o mais parecido."""
+    message = update.effective_message
+    if message is None or not message.text:
+        return
+    typed = message.text.split()[0].lstrip("/").split("@")[0]
+    suggestion = suggest_command(typed)
+    text = f"Não conheço o comando /{typed}."
+    if suggestion:
+        text += f" Você quis dizer /{suggestion}?"
+    await message.reply_text(text + "\nTodos os comandos: /ajuda")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

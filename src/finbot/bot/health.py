@@ -54,10 +54,15 @@ def format_indicators(i: Indicators, cfg: HealthSettings) -> list[str]:
             f"{BAND_ICONS[i.band]} {i.band} "
             f"(saudável até {cfg.ok_max_pct}%, atenção até {cfg.warn_max_pct}%)"
         )
-    leftover = format_brl(i.leftover_cents)
-    lines.append(f"Sobra depois dos fixos e das parcelas: {leftover}")
-    if i.leftover_cents < 0:
-        lines.append("🚨 Os fixos e as parcelas passam da renda média.")
+    if i.income_cents == 0:
+        # Sem renda registrada, a "sobra" seria negativa só por falta de dado: sem alarme.
+        lines.append(
+            "Sobra depois dos fixos e das parcelas: registre suas entradas para eu calcular"
+        )
+    else:
+        lines.append(f"Sobra depois dos fixos e das parcelas: {format_brl(i.leftover_cents)}")
+        if i.leftover_cents < 0:
+            lines.append("🚨 Os fixos e as parcelas passam da renda média.")
     lines.append(f"Total em dívidas: {format_brl(i.total_debt_cents)}")
     lines.append(
         "(Cartão de crédito não entra nas parcelas: a fatura é consumo e já está nos gastos.)"

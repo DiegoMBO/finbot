@@ -25,7 +25,14 @@ from telegram.ext import (
 )
 
 from finbot.bot import debt_form as form
-from finbot.bot.debts import DRAFT, EDITING, format_rate, kind_keyboard, projection_text
+from finbot.bot.debts import (
+    DRAFT,
+    EDITING,
+    card_hint,
+    format_rate,
+    kind_keyboard,
+    projection_text,
+)
 from finbot.config import Settings
 from finbot.money import format_brl
 from finbot.parsing.debt import FieldError, is_skip
@@ -167,7 +174,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not found:
         names = ", ".join(d.name for d in debts.list_active(conn)) or "nenhuma"
         text = f"Não encontrei a dívida {query!r}. " if query else ""
-        await message.reply_text(f"{text}Dívidas ativas: {names}.")
+        hint = card_hint(conn, query) if query else ""
+        await message.reply_text(f"{text}Dívidas ativas: {names}.{hint}")
         return ConversationHandler.END
     if len(found) == 1:
         context.user_data[EDITING] = {"debt_id": found[0].id}

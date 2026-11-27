@@ -7,6 +7,7 @@ para mostrar a evolução (e, mais adiante, o gráfico).
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -247,12 +248,22 @@ def find(conn: sqlite3.Connection, query: str, include_closed: bool = False) -> 
     exact = [d for d in debts if name_key(d.name) == wanted]
     if exact:
         return exact
-    words = wanted.split()
+    words = search_words(query)
 
     def haystack(d: Debt) -> list[str]:
-        return name_key(f"{d.name} {d.creditor or ''}").split()
+        return search_words(f"{d.name} {d.creditor or ''}")
 
     return [d for d in debts if all(any(h.startswith(w) for h in haystack(d)) for w in words)]
+
+
+def search_words(text: str) -> list[str]:
+    """Palavras para BUSCA por comando: separa também por hífen, _ / e ponto.
+
+    "clt-nubank" -> ["clt", "nubank"], para "/divida nubank" achar "clt-nubank".
+    (No texto livre a separação continua só por espaço; senão "paguei 793 do
+    clt-nubank" passaria a citar também o cartão "Nubank".)
+    """
+    return [w for w in re.split(r"[\s\-_/.]+", name_key(text)) if w]
 
 
 # --- pagamentos, ajustes e desfazer -----------------------------------------

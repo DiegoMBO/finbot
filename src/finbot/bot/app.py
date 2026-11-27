@@ -89,6 +89,8 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CallbackQueryHandler(handlers.payment_choice, pattern=f"^{payments.CB}"))
     app.add_handler(CallbackQueryHandler(handlers.card_choice, pattern=f"^{card_ops.CB}"))
     app.add_handler(CommandHandler("cancelar", debts.cancel))  # fora de um cadastro
+    # Comando que nenhum handler acima aceitou: avisa e sugere o mais parecido.
+    app.add_handler(MessageHandler(filters.COMMAND, handlers.unknown_command))
     # Qualquer texto que não seja comando é tratado como um registro.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.register))
     # Botões de cadastros que já terminaram.
