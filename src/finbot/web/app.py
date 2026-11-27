@@ -8,6 +8,10 @@ Rotas:
   GET  /gastos?mes=AAAA-MM               gastos do mês, gráficos, orçamentos, registros
   POST /registrar                        gasto, entrada ou compra no cartão
   POST /desfazer                         desfaz o último registro (= /desfazer)
+  GET  /dividas, /dividas/{id}           dívidas, simulador e detalhe com gráfico
+  POST /pagar                            pagamento de dívida (= /pagar)
+  GET  /api/simular?extra=CENTAVOS       simulador de todas as dívidas (JSON)
+  GET  /api/dividas/{id}/simular         simulador de uma dívida (JSON)
   GET  /api/saldo-diario                 dados do gráfico (JSON)
 
 "Handlers finos", como no bot: cada rota só lê o pedido, chama services/ ou
@@ -31,10 +35,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from finbot import db
 from finbot.bot.cash import parse_signed_amount
+from finbot.bot.payments import format_payment
 from finbot.config import Settings
-from finbot.money import AmountError
-from finbot.services import cash, undo
-from finbot.web import entries, views
+from finbot.money import AmountError, parse_amount
+from finbot.services import cash, debts, undo
+from finbot.web import debts_view, entries, views
 from finbot.web.config import WebSettings
 from finbot.web.security import LoginThrottle, secret_key, verify_password
 
@@ -196,6 +201,61 @@ def create_app(settings: Settings, web: WebSettings, clock=None) -> FastAPI:
         # A mesma regra do /desfazer do bot (services/undo.py).
         request.session["flash"] = undo.undo_last(conn, settings.timezone)
         return RedirectResponse(_safe_back(voltar), status_code=303)
+
+    @app.get("/dividas", response_class=HTMLResponse, dependencies=[Depends(require_login)])
+    def debts_list(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
+        data = debts_view.debts_page(conn, today())
+        flash = request.session.pop("flash", None)
+        return templates.TemplateResponse(
+            request, "dividas.html", {**data, "flash": flash, "page": "dividas"}
+        )
+
+    @app.get(
+        "/dividas/{debt_id}", response_class=HTMLResponse, dependencies=[Depends(require_login)]
+    )
+    def debt_page(request: Request, debt_id: int, conn: sqlite3.Connection = Depends(get_conn)):
+        data = debts_view.debt_detail(conn, debt_id, today(), settings.timezone)
+        if data is None:
+            return RedirectResponse("/dividas", status_code=303)
+        flash = request.session.pop("flash", None)
+        return templates.TemplateResponse(
+            request, "divida.html", {**data, "flash": flash, "page": "dividas"}
+        )
+
+    @app.post("/pagar", dependencies=[Depends(require_login)])
+    def pay_debt(
+        request: Request,
+        divida: int = Form(...),
+        valor: str = Form(""),
+        voltar: str = Form("/dividas"),
+        conn: sqlite3.Connection = Depends(get_conn),
+    ):
+        debt = next((d for d in debts.list_active(conn) if d.id == divida), None)
+        try:
+            amount = parse_amount(valor)
+        except AmountError:
+            amount = 0
+        if debt is None:
+            request.session["flash"] = "Essa dívida não está mais ativa. Nada foi registrado."
+        elif amount <= 0:
+            request.session["flash"] = "Não registrei: valor inválido (ex.: 150 ou 99,90)."
+        else:
+            # O mesmo do bot: juros do mês, saldo, gasto em "dívidas" e /desfazer.
+            result = debts.pay(conn, debt, amount, now_fn(), settings.timezone)
+            request.session["flash"] = format_payment(result, today())
+        return RedirectResponse(_safe_back(voltar), status_code=303)
+
+    @app.get("/api/simular", dependencies=[Depends(require_login)])
+    def api_simulate(extra: int = 0, conn: sqlite3.Connection = Depends(get_conn)):
+        return debts_view.simulate(conn, today(), extra)
+
+    @app.get("/api/dividas/{debt_id}/simular", dependencies=[Depends(require_login)])
+    def api_simulate_one(
+        debt_id: int, extra: int = 0, conn: sqlite3.Connection = Depends(get_conn)
+    ):
+        if debt_id not in {d.id for d in debts.list_all(conn)}:
+            return JSONResponse({"erro": "dívida não encontrada"}, status_code=404)
+        return debts_view.simulate_one(conn, debt_id, today(), extra)
 
     @app.get("/api/saldo-diario", dependencies=[Depends(require_login)])
     def api_daily(conn: sqlite3.Connection = Depends(get_conn)):

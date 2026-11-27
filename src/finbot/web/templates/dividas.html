@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Dívidas · finbot{% endblock %}
+
+{% block content %}
+<h1>Dívidas</h1>
+{% if flash %}<div class="alert ok" role="status" style="white-space:pre-line">{{ flash }}</div>{% endif %}
+
+{% if not cards %}
+<div class="card"><p>Nenhuma dívida ativa. 🎉 Cadastre no bot com /novadivida.</p></div>
+{% else %}
+
+<section class="tiles">
+  <div class="tile"><div class="label">Total devido</div><div class="value">{{ brl(total) }}</div></div>
+  <div class="tile"><div class="label">Parcelas por mês</div><div class="value">{{ brl(monthly) }}</div></div>
+  <div class="tile"><div class="label">Dívidas ativas</div><div class="value">{{ cards|length }}</div>
+    <div class="note">na ordem de prioridade (maiores juros primeiro)</div></div>
+</section>
+
+<section class="debt-grid" aria-label="Suas dívidas">
+  {% for c in cards %}
+  <a class="debt-card {{ 'hot' if c.grows }}" href="/dividas/{{ c.id }}">
+    <div class="debt-top">
+      <span class="debt-name">{% if loop.first %}<span class="badge">1º</span> {% endif %}{{ c.name }}</span>
+      <span class="debt-kind">{{ c.kind }}</span>
+    </div>
+    <div class="debt-balance">{{ brl(c.balance) }}</div>
+    <div class="meter" aria-label="Já pago {{ c.paid_pct }}%"><span class="good" style="width: {{ c.paid_pct }}%"></span></div>
+    <div class="debt-facts">
+      <span>{{ c.rate }}{% if c.annual %} ao mês{% endif %}</span>
+      {% if c.payment %}<span>parcela {{ brl(c.payment) }}{% if c.due_day %} · dia {{ c.due_day }}{% endif %}</span>{% endif %}
+      {% if c.remaining %}<span>{{ c.remaining }} restantes</span>{% endif %}
+      {% if c.consigned %}<span>descontada no salário</span>{% endif %}
+    </div>
+    <div class="debt-status {{ c.tone }}">{{ c.status }}</div>
+  </a>
+  {% endfor %}
+</section>
+
+{% if has_inputs %}
+<section class="card sim" aria-labelledby="sim-title">
+  <h2 id="sim-title">Simulador: e se eu pagar mais por mês?</h2>
+  <label class="slider">
+    <span>Extra por mês: <strong id="extra-label">R$ 0,00</strong></span>
+    <input type="range" id="extra" min="0" max="{{ max_extra }}" step="5000" value="0" aria-describedby="sim-title">
+  </label>
+  <div class="sim-results">
+    <div class="sim-box">
+      <div class="label">🏔️ Avalanche (maior juros primeiro)</div>
+      <div class="big" id="ava-end">–</div>
+      <div class="note" id="ava-interest"></div>
+    </div>
+    <div class="sim-box">
+      <div class="label">⛄ Bola de neve (menor saldo primeiro)</div>
+      <div class="big" id="snow-end">–</div>
+      <div class="note" id="snow-interest"></div>
+    </div>
+  </div>
+  <p class="sim-saved" id="sim-saved" aria-live="polite"></p>
+  <div id="sim-chart" style="width:100%;height:260px" role="img" aria-label="Total devido mês a mês"></div>
+  <h2 style="margin-top:10px">Ordem em que acabam (avalanche)</h2>
+  <ol class="order" id="ava-order"></ol>
+  <p class="hint">Mesmas contas do /estrategia: o dinheiro de uma dívida quitada passa para a próxima. Inclui o rotativo dos cartões, se houver.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Registrar pagamento</h2>
+  <form class="entry-form" method="post" action="/pagar">
+    <input type="hidden" name="voltar" value="/dividas">
+    <div class="row">
+      <label class="field grow">Dívida
+        <select name="divida">{% for o in options %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}</select>
+      </label>
+      <label class="field grow">Valor pago
+        <input type="text" name="valor" inputmode="decimal" placeholder="887,12" required>
+      </label>
+    </div>
+    <button class="primary" type="submit">Registrar pagamento</button>
+  </form>
+  <p class="hint">O mesmo que /pagar no bot: aplica os juros do mês, atualiza o saldo e dá para desfazer (aqui em Gastos ou com /desfazer).</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if has_inputs %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/dividas.js"></script>
+{% endif %}
+{% endblock %}

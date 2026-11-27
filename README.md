@@ -207,7 +207,16 @@ como no texto livre. "Desfazer o último registro" segue a mesma regra do
 `/desfazer` (as duas usam `services/undo.py`): o que você registra no app pode
 ser desfeito no bot, e vice-versa.
 
-Próximas telas: Dívidas (com simulador), Cartões e Salário.
+- **Dívidas:** um cartão por dívida, na ordem de prioridade (a que cresce sozinha
+  e as de maior juros primeiro), com saldo, barra do que já foi pago, parcela e
+  quando acaba. **Simulador:** arraste "extra por mês" e veja na hora avalanche ×
+  bola de neve, quando tudo acaba, os juros economizados, o gráfico do total
+  devido (só as parcelas × com o extra) e a ordem em que cada dívida acaba (as
+  contas do `/estrategia`). Tocando numa dívida: gráfico do histórico e da
+  projeção, simulador só dela (`/simular`) e o histórico. Dá para **registrar
+  pagamento** (o mesmo `/pagar`, com o mesmo texto de confirmação).
+
+Próximas telas: Cartões e Salário.
 
 ### 1. Criar a senha
 

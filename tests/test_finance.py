@@ -283,3 +283,9 @@ def test_data_de_quitacao():
     assert f.payoff_date(today, 12, 31) == date(2027, 10, 31)
     # Sem dia de vencimento: mês 1 = 26/12/2026; mês 3 = 26/02/2027
     assert f.payoff_date(today, 3, None) == date(2027, 2, 26)
+
+
+def test_trajetoria_do_total_devido():
+    # 1.000 sem juros, parcela 100: 900, 800, ..., 0 (um valor por mês)
+    r = f.run_strategy([f.DebtInput("D", 100_000, 0, 10_000)], "avalanche")
+    assert r.trajectory == tuple(range(90_000, -1, -10_000))

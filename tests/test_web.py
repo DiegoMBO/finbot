@@ -300,3 +300,78 @@ def test_extrato_do_app_destaca_o_cheque_especial(env):
     assert "151,8% ao ano" in html
     # sobram 169,94 até 15/12: sugere mandar para o santander
     assert "mande até <strong>R$ 169,94</strong> para o santander" in html
+
+
+# --- etapa 3: dívidas ------------------------------------------------------------
+
+
+def test_simulador_de_todas_as_dividas_feito_a_mao(env):
+    conn, _ = env
+    from finbot.web import debts_view
+
+    # Com +1.500/mês (avalanche): mês 1 o santander ganha 102,91 de juros
+    # (1.286,40 -> 1.389,31); parcelas clt 793,21 e Bradesco 500 saem do orçamento;
+    # o extra de 1.500 quita o santander (1.389,31) já no mês 1.
+    # Juros totais: só os 102,91 do 1º mês.
+    s = debts_view.simulate(conn, TODAY, 150_000)
+    assert s["avalanche"]["order"][0] == {"name": "santander", "month": 1, "when": "dez/2026"}
+    assert s["avalanche"]["interest"] == 10_291
+    assert s["avalanche"]["budget"] == 79_321 + 50_000 + 150_000
+    # Sem extra, o santander fica crescendo até as outras acabarem: juros bem maiores
+    assert s["base"]["interest"] > s["avalanche"]["interest"]
+    assert s["saved_interest"] == s["base"]["interest"] - 10_291
+    # o gráfico começa no total de hoje: 2.379 + 2.500 + 1.286,40 = 6.165,40
+    assert s["start"] == 616_540
+    assert debts_view.simulate(conn, TODAY, 99_999_999)["extra"] == 300_000  # teto do slider
+
+
+def test_simulador_de_uma_divida_feito_a_mao(env):
+    conn, _ = env
+    from finbot.web import debts_view
+
+    bradesco = next(d for d in debts.list_active(conn) if d.name == "Bradesco")
+    # 2.500 sem juros, parcela 500: 5 meses. Com +500: 1.000/mês -> 3 meses (1.000, 1.000, 500)
+    r = debts_view.simulate_one(conn, bradesco.id, TODAY, 50_000)
+    assert (r["base"]["months"], r["with_extra"]["months"]) == (5, 3)
+    assert (r["months_saved"], r["interest_saved"]) == (2, 0)
+    assert r["with_extra"]["path"] == [150_000, 50_000, 0]
+
+
+def test_tela_de_dividas_e_pagamento_pelo_app(env):
+    conn, client = env
+    login(client)
+    html = client.get("/dividas").text
+    # o cheque especial (cresce sozinho) vem primeiro, em destaque
+    assert html.index("santander") < html.index("Bradesco")
+    assert "Sem parcela: cresce R$ 102,91 por mês" in html
+    bradesco = next(d for d in debts.list_active(conn) if d.name == "Bradesco")
+    r = client.post("/pagar", data={"divida": bradesco.id, "valor": "500"})
+    assert "Pagamento de R$ 500,00 em Bradesco" in r.text  # mesmo texto do bot
+    assert "Saldo: R$ 2.500,00 → R$ 2.000,00" in r.text
+    from finbot.web import debts_view
+
+    card = next(c for c in debts_view.debts_page(conn, TODAY)["cards"] if c["name"] == "Bradesco")
+    assert card["paid_pct"] == 20  # 500 de 2.500
+    # desfaz pelo app (mesma regra do /desfazer)
+    r = client.post("/desfazer", data={"voltar": "/dividas"})
+    assert "pagamento de R$ 500,00 em Bradesco" in r.text
+    assert debts.get(conn, bradesco.id).balance_cents == 250_000
+    assert (
+        "valor inválido" in client.post("/pagar", data={"divida": bradesco.id, "valor": "x"}).text
+    )
+
+
+def test_detalhe_da_divida(env):
+    conn, client = env
+    login(client)
+    santander = next(d for d in debts.list_active(conn) if d.name == "santander")
+    html = client.get(f"/dividas/{santander.id}").text
+    assert "≈ 151,8% ao ano" in html and "Evolução do saldo" in html
+    assert client.get("/dividas/9999", follow_redirects=False).status_code == 303
+    assert client.get("/api/dividas/9999/simular").status_code == 404
+    from finbot.web import debts_view
+
+    d = debts_view.debt_detail(conn, santander.id, TODAY, load_settings_tz())
+    # sem parcela: a projeção mostra 12 meses crescendo (1.389,31 no 1º; 3.239,36 no 12º)
+    assert [p["cents"] for p in d["projection"]][:1] == [138_931]
+    assert d["projection"][-1]["cents"] == 323_936

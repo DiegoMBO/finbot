@@ -222,3 +222,36 @@ button.link { background: none; border: 0; color: var(--accent); font: inherit; 
 .growth { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .growth b { color: var(--critical); }
 .priority .alert { margin: 10px 0 0; }
+
+/* --- etapa 3: dívidas e simulador --- */
+.debt-grid { display: grid; gap: 10px; grid-template-columns: 1fr; margin-bottom: 14px; }
+@media (min-width: 640px) { .debt-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 960px) { .debt-grid { grid-template-columns: repeat(3, 1fr); } }
+.debt-card {
+  display: block; text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 12px 14px;
+}
+.debt-card.hot { border-color: var(--critical); background: var(--critical-soft); }
+.debt-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.debt-name { font-weight: 700; }
+.debt-kind { color: var(--text-2); font-size: 12px; }
+.debt-balance { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.debt-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--text-2); font-size: 12.5px; }
+.debt-status { margin-top: 6px; font-size: 13px; font-weight: 600; }
+.debt-status.good { color: var(--good); }
+.debt-status.warning { color: var(--warning); }
+.debt-status.critical { color: var(--critical); }
+.muted { color: var(--text-2); font-weight: 400; font-size: 14px; }
+
+.slider { display: grid; gap: 8px; margin: 6px 0 12px; font-size: 15px; }
+.slider input[type="range"] { width: 100%; accent-color: var(--accent); height: 28px; }
+.sim-results { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 640px) { .sim-results { grid-template-columns: 1fr 1fr; } }
+.sim-box { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.sim-box .label { color: var(--text-2); font-size: 13px; }
+.sim-box .big { font-size: 18px; font-weight: 700; margin: 2px 0; }
+.sim-box .note { color: var(--text-2); font-size: 12.5px; }
+.sim-saved { font-weight: 600; margin: 10px 0 4px; }
+.order { margin: 0; padding-left: 20px; font-size: 14px; }
+.order li { padding: 2px 0; }

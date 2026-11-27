@@ -227,6 +227,8 @@ class StrategyResult:
     total_months: int | None
     total_interest_cents: int
     monthly_budget_cents: int
+    # Total que ainda se deve no fim de cada mês (mês 1, 2, 3...): o gráfico do app.
+    trajectory: tuple[int, ...] = ()
 
 
 def _priority(strategy: Strategy, balances: dict[str, int], debts: dict[str, DebtInput]):
@@ -268,6 +270,7 @@ def run_strategy(
     order: list[str] = []
     total_interest = 0
     month = 0
+    trajectory: list[int] = []
 
     def pay(name: str, amount: int) -> None:
         balances[name] -= amount
@@ -300,6 +303,7 @@ def run_strategy(
 
         for name in [n for n, b in balances.items() if b == 0]:
             del balances[name]
+        trajectory.append(sum(balances.values()))
 
     feasible = not balances
     return StrategyResult(
@@ -310,6 +314,7 @@ def run_strategy(
         total_months=month if feasible else None,
         total_interest_cents=total_interest,
         monthly_budget_cents=budget,
+        trajectory=tuple(trajectory),
     )
 
 

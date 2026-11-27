@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ debt.name }} · finbot{% endblock %}
+
+{% block content %}
+<p><a href="/dividas">‹ Dívidas</a></p>
+<h1>{{ debt.name }} <small class="muted">{{ debt.kind_label }}</small></h1>
+{% if flash %}<div class="alert ok" role="status" style="white-space:pre-line">{{ flash }}</div>{% endif %}
+
+<section class="tiles">
+  <div class="tile"><div class="label">Saldo</div><div class="value">{{ brl(debt.balance_cents) }}</div></div>
+  <div class="tile"><div class="label">Juros</div><div class="value">{{ rate }}{% if annual %} <small>ao mês</small>{% endif %}</div>
+    {% if annual %}<div class="note">≈ {{ annual }} ao ano</div>{% endif %}</div>
+  <div class="tile {{ tone }}"><div class="label">Situação</div><div class="note" style="font-size:15px;color:var(--text)">{{ status }}</div></div>
+</section>
+
+<section class="card">
+  <h2>Evolução do saldo</h2>
+  <div id="debt-chart" style="width:100%;height:280px" role="img" aria-label="Saldo da dívida: histórico e projeção"></div>
+  <p class="hint">Linha cheia: o que aconteceu (cadastro, pagamentos, ajustes). Tracejada: a projeção pagando a parcela de sempre.</p>
+</section>
+
+{% if debt.status == 'ativa' %}
+<section class="card sim">
+  <h2>E se eu pagar mais nesta dívida?</h2>
+  <label class="slider">
+    <span>Extra por mês: <strong id="extra-label">R$ 0,00</strong></span>
+    <input type="range" id="extra" min="0" max="{{ max_extra }}" step="5000" value="0">
+  </label>
+  <p class="sim-saved" id="sim-result" aria-live="polite">Arraste para ver.</p>
+</section>
+
+<section class="card">
+  <h2>Registrar pagamento</h2>
+  <form class="entry-form" method="post" action="/pagar">
+    <input type="hidden" name="divida" value="{{ debt.id }}">
+    <input type="hidden" name="voltar" value="/dividas/{{ debt.id }}">
+    <div class="row">
+      <label class="field grow">Valor pago
+        <input type="text" name="valor" inputmode="decimal" placeholder="{{ brl(debt.payment_cents)[3:] if debt.payment_cents else '100,00' }}" required>
+      </label>
+    </div>
+    <button class="primary" type="submit">Registrar pagamento</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Histórico</h2>
+  <ul class="list">
+    {% for e in events %}
+    <li>
+      <span class="when">{{ e.occurred_at.strftime('%d/%m/%y') }}</span>
+      <span class="what">{{ {'cadastro': 'Cadastro', 'pagamento': 'Pagamento', 'ajuste': 'Ajuste', 'fatura': 'Fatura'}[e.kind] }}{% if e.interest_cents %} <small>juros do mês {{ brl(e.interest_cents) }}</small>{% endif %}</span>
+      <span class="amount">{{ brl(e.balance_after_cents) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<script type="application/json" id="debt-data">{{ {"id": debt.id, "history": history, "projection": projection} | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/divida.js"></script>
+{% endblock %}
