@@ -98,6 +98,23 @@ def test_consignado_acaba_na_ultima_parcela(conn):
     assert [x for x in lines(feb, cash.DEBT) if x[1] == "clt-nubank"] == []
 
 
+def test_consignado_que_comeca_na_folha_de_dezembro(conn):
+    # O caso real: vencimentos jan, fev, mar -> descontos nas folhas de dez, jan, fev.
+    conn.execute("UPDATE salary_deductions SET first_competence = '2026-12'")
+    conn.commit()
+    cash.set_anchor(conn, 200, NOW)
+    nov = cash.statement(conn, 2026, 11, TODAY, SP)
+    assert lines(nov, cash.DEBT) == []  # 30/11 sem desconto: caem os 2.268,49 inteiros
+    # 2,00 + 937,50 + 2.268,49 = 3.207,99
+    assert nov.end_cents == 320_799
+    by_month = {}
+    for y, m in [(2026, 12), (2027, 1), (2027, 2), (2027, 3)]:
+        s = cash.statement(conn, y, m, TODAY, SP)
+        by_month[m] = [x[2] for x in lines(s, cash.DEBT) if x[1] == "clt-nubank"]
+    # 2.379,00 = 793,21 + 793,21 + 792,58; em março (folha de mar) já acabou
+    assert by_month == {12: [79_321], 1: [79_321], 2: [79_258], 3: []}
+
+
 def test_registros_depois_do_saldo_inicial(conn):
     cash.set_anchor(conn, 35_000, NOW)
     later = datetime(2026, 11, 28, 14, tzinfo=UTC)

@@ -172,3 +172,18 @@ def test_aviso_do_prazo_das_ferias(bot):
     assert sb.vacation_deadline_warning(bot.conn, date(2028, 5, 7)) is None
     salary.add_vacation(bot.conn, date(2027, 8, 1), 30, 0, NOW)
     assert sb.vacation_deadline_warning(bot.conn, date(2028, 5, 6)) is None  # já tirou
+
+
+def test_consignado_a_partir_de_uma_folha():
+    today = date(2026, 11, 27)
+    assert sb.split_first_competence("clt-nubank a partir de 12/2026", today) == (
+        "clt-nubank",
+        (2026, 12),
+    )
+    assert sb.split_first_competence("clt-nubank a partir da folha de dez", today) == (
+        "clt-nubank",
+        (2026, 12),
+    )
+    assert sb.split_first_competence("clt-nubank", today) == ("clt-nubank", None)
+    d = salary.Deduction(1, "consignado clt-nubank", None, None, 1, (2026, 12))
+    assert sb.deduction_label(d) == "consignado clt-nubank (a partir da folha de dez/2026)"

@@ -4,6 +4,7 @@ do que cai na conta (salário, vale, 13º e férias)."""
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import warnings
 from datetime import UTC, date, datetime, timedelta
@@ -24,6 +25,7 @@ from finbot.money import format_brl
 from finbot.parsing import debt as pd
 from finbot.parsing import salary_text as st
 from finbot.parsing.debt import FieldError, is_skip
+from finbot.parsing.period import MONTH_NAMES
 from finbot.parsing.text import normalize
 from finbot.services import debts, payroll, salary
 from finbot.services.finance import add_months
@@ -57,6 +59,31 @@ def _brl(cents: int) -> str:
 
 
 # --- textos -------------------------------------------------------------------------
+
+
+_FROM = re.compile(r"\s+(?:a\s+partir\s+(?:de|da\s+folha\s+de)|desde|come[cç]a\s+em)\s+(.+)$", re.I)
+
+
+def split_first_competence(text: str, today: date) -> tuple[str, tuple[int, int] | None]:
+    """'clt-nubank a partir de 12/2026' -> ('clt-nubank', (2026, 12)).
+    Sem 'a partir de': (texto, None) = desconto em todas as folhas."""
+    from finbot.bot.cash import MonthArgError, parse_target
+
+    match = _FROM.search(text.strip())
+    if not match:
+        return text.strip(), None
+    try:
+        first = parse_target(match.group(1), today)
+    except MonthArgError as exc:
+        raise FieldError(f"{exc} (ex.: clt-nubank a partir de 12/2026)") from exc
+    return text[: match.start()].strip(), first
+
+
+def deduction_label(d: salary.Deduction) -> str:
+    if d.first_competence is None:
+        return d.name
+    y, m = d.first_competence
+    return f"{d.name} (a partir da folha de {MONTH_NAMES[m - 1][:3]}/{y})"
 
 
 def payday_text(rule: str) -> str:
@@ -486,7 +513,9 @@ QUESTIONS = {
         True,
     ),
     "consigned": (
-        "Tem empréstimo consignado descontado em folha? Escreva o nome da dívida. Pular = não",
+        "Tem empréstimo consignado descontado em folha? Escreva o nome da dívida. Se o 1º "
+        "desconto ainda vai acontecer, diga a folha: clt-nubank a partir de 12/2026. "
+        "Pular = não",
         True,
     ),
     "deductions": (
@@ -528,11 +557,13 @@ def parse_answer(conn, field: str, text: str, today: date):
     if field == "overtime_lag_months":
         return st.parse_int(text, 0, 3, "meses")
     if field == "consigned":
-        found = debts.find(conn, text)
+        # "clt-nubank" ou "clt-nubank a partir de 12/2026" (1ª folha com o desconto)
+        name, first = split_first_competence(text, today)
+        found = debts.find(conn, name)
         if len(found) != 1:
             names = ", ".join(d.name for d in debts.list_active(conn)) or "nenhuma"
             raise FieldError(f"não achei uma dívida só com esse nome (suas dívidas: {names})")
-        return found[0].id
+        return found[0].id, first
     if field == "deductions":
         return st.parse_deductions(text)
     raise ValueError(field)
@@ -566,8 +597,11 @@ def save_draft(conn, draft: dict, now: datetime) -> None:
         overtime_lag_months=values["overtime_lag_months"],
     )  # fmt: skip
     if values["consigned"]:
-        debt = debts.get(conn, values["consigned"])
-        salary.add_deduction(conn, f"consignado {debt.name}", now, debt_id=debt.id)
+        debt_id, first = values["consigned"]
+        debt = debts.get(conn, debt_id)
+        salary.add_deduction(
+            conn, f"consignado {debt.name}", now, debt_id=debt.id, first_competence=first
+        )
     for spec in values["deductions"]:
         salary.add_deduction(
             conn, spec.name, now, percent_bp=spec.percent_bp, fixed_cents=spec.fixed_cents
@@ -721,7 +755,10 @@ EDIT_QUESTIONS = {
     "holiday_pct": "Adicional de domingo/feriado, em %? Ex.: 100",
     "advance": 'Vale: ex.: 40% dia 20 (ou "não" para tirar)',
     "closing_day": 'Dia de fechamento do ponto (ou "fim" para o último dia do mês)',
-    "consigned": 'Nome da dívida descontada em folha (ou "nenhum")',
+    "consigned": (
+        'Nome da dívida descontada em folha (ou "nenhum"). Se o 1º desconto ainda vai '
+        "acontecer: clt-nubank a partir de 12/2026"
+    ),
     "deductions": (
         "Todos os descontos fixos (substitui os atuais). "
         'Ex.: vale-transporte 6%, plano 150 (ou "nenhum")'
@@ -746,7 +783,7 @@ def edit_value(conn, profile, employment, field: str) -> str:
         items = [
             d for d in salary.deductions(conn) if (d.debt_id is not None) == (field == "consigned")
         ]
-        return ", ".join(d.name for d in items) or "nenhum"
+        return ", ".join(deduction_label(d) for d in items) or "nenhum"
     return str(getattr(profile, field))
 
 
@@ -841,9 +878,11 @@ def apply_edit(conn, field: str, text: str, today: date, now: datetime) -> str:
         if norm not in {"nenhum", "nenhuma", "nao"}:
             value = parse_answer(conn, field, text, today)
             if field == "consigned":
+                debt_id, first = value
                 salary.add_deduction(
-                    conn, f"consignado {debts.get(conn, value).name}", now, debt_id=value
-                )
+                    conn, f"consignado {debts.get(conn, debt_id).name}", now,
+                    debt_id=debt_id, first_competence=first,
+                )  # fmt: skip
             else:
                 for spec in value:
                     salary.add_deduction(

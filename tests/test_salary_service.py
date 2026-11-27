@@ -153,6 +153,22 @@ def test_vale_quinzenal(conn):
     assert s.net_cents == 406_849 - 180_000
 
 
+def test_desconto_que_so_comeca_numa_folha_futura(conn):
+    clt = next(d for d in debts.list_active(conn) if d.name == "clt-nubank")
+    conn.execute("DELETE FROM salary_deductions")
+    salary.add_deduction(conn, "consignado clt-nubank", NOW, debt_id=clt.id,
+                         first_competence=(2026, 12))  # fmt: skip
+    salary.add_deduction(conn, "plano", NOW, fixed_cents=15_000, first_competence=(2027, 1))
+    [d1, d2] = salary.deductions(conn)
+    assert (d1.first_competence, d2.first_competence) == ((2026, 12), (2027, 1))
+    nov = salary.payslip(conn, (2026, 11))
+    assert (nov.consigned, nov.deductions_cents) == ([], 0)
+    dec = salary.payslip(conn, (2026, 12))
+    assert ([v for _, v in dec.consigned], dec.deductions_cents) == ([79_321], 0)
+    jan = salary.payslip(conn, (2027, 1))
+    assert jan.deductions_cents == 15_000
+
+
 def test_aviso_de_datas_do_13_fora_do_prazo():
     ok = salary.parse_schedule("30/06, 30/11, 18/12")
     assert salary.schedule_warnings(ok) == []

@@ -86,6 +86,11 @@ class Deduction:
     percent_bp: int | None
     fixed_cents: int | None
     debt_id: int | None
+    # Primeira folha com o desconto, (ano, mês) da competência; None = todas.
+    first_competence: tuple[int, int] | None = None
+
+    def applies_to(self, competence: tuple[int, int]) -> bool:
+        return self.first_competence is None or competence >= self.first_competence
 
 
 def parse_schedule(text: str) -> list[tuple[int, int]]:
@@ -221,9 +226,14 @@ def update_settings(conn: sqlite3.Connection, **values) -> None:
 
 def deductions(conn: sqlite3.Connection) -> list[Deduction]:
     rows = conn.execute("SELECT * FROM salary_deductions ORDER BY id").fetchall()
-    return [
-        Deduction(r["id"], r["name"], r["percent_bp"], r["fixed_cents"], r["debt_id"]) for r in rows
-    ]
+    found = []
+    for r in rows:
+        first = r["first_competence"]
+        comp = (int(first[:4]), int(first[5:7])) if first else None
+        found.append(
+            Deduction(r["id"], r["name"], r["percent_bp"], r["fixed_cents"], r["debt_id"], comp)
+        )
+    return found
 
 
 def add_deduction(
@@ -233,12 +243,15 @@ def add_deduction(
     percent_bp: int | None = None,
     fixed_cents: int | None = None,
     debt_id: int | None = None,
+    first_competence: tuple[int, int] | None = None,
 ) -> None:
+    first = f"{first_competence[0]}-{first_competence[1]:02d}" if first_competence else None
     with conn:
         conn.execute(
-            "INSERT INTO salary_deductions (name, percent_bp, fixed_cents, debt_id, created_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (name, percent_bp, fixed_cents, debt_id, to_db(now)),
+            "INSERT INTO salary_deductions"
+            " (name, percent_bp, fixed_cents, debt_id, first_competence, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (name, percent_bp, fixed_cents, debt_id, first, to_db(now)),
         )
 
 
@@ -448,6 +461,8 @@ def payslip(conn: sqlite3.Connection, competence: Month, extra=()) -> Payslip | 
     fixed: list[tuple[str, int]] = []
     consigned: list[tuple[debts.Debt, int]] = []
     for d in deductions(conn):
+        if not d.applies_to(competence):
+            continue  # o desconto só começa numa folha mais à frente
         if d.debt_id is not None:
             debt = next((x for x in debts.list_active(conn) if x.id == d.debt_id), None)
             if debt and debt.payment_cents:
@@ -727,6 +742,6 @@ def monthly_net_estimate(conn: sqlite3.Connection, today: date, extra=()) -> int
     fixed = sum(
         profile.gross_cents * d.percent_bp // 10_000 if d.percent_bp else d.fixed_cents
         for d in deductions(conn)
-        if d.debt_id is None
+        if d.debt_id is None and d.applies_to((today.year, today.month))
     )
     return gross - contribution - tax - fixed

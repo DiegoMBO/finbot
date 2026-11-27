@@ -304,6 +304,12 @@ descontado em folha (o nome da dívida) e outros descontos (ex.:
 `vale-transporte 6%, plano de saúde 150`). Antes de salvar mostra o líquido
 estimado: confira com o seu holerite.
 
+**Consignado que ainda não começou:** o desconto costuma vir na folha do mês
+ANTERIOR ao vencimento (e o 1º vencimento, uns 60 dias depois da contratação).
+Ex.: vencimentos em jan, fev e mar → descontos nas folhas de dez, jan e fev.
+Informe a primeira folha: `clt-nubank a partir de 12/2026` (no cadastro ou em
+`/editarsalario` → Consignado). As folhas anteriores ficam sem esse desconto.
+
 Depois, `/salario` mostra o holerite estimado (bruto, INSS, IR, descontos,
 consignado e o que cai na conta) e os pagamentos dos próximos 60 dias.
 `/editarsalario` muda qualquer item; o **reajuste** pede o valor e a data
