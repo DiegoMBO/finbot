@@ -16,7 +16,6 @@ from telegram.ext import ContextTypes
 
 from finbot.bot import card_ops, payments
 from finbot.bot import salary as salary_bot
-from finbot.services import salary as salary_service
 from finbot.bot.texts import format_alert, format_budget_line
 from finbot.config import Settings
 from finbot.money import format_brl
@@ -26,6 +25,7 @@ from finbot.parsing.message import ParseError, parse_message
 from finbot.parsing.period import PeriodError, month_label, parse_month
 from finbot.services import budgets, debts, export, transactions
 from finbot.services import credit_cards as cc
+from finbot.services import salary as salary_service
 from finbot.services.budgets import BudgetStatus
 from finbot.services.transactions import Transaction
 
@@ -48,6 +48,14 @@ HELP_TEXT = (
     "/orcamento remover categoria: apaga o limite\n"
     "/exportar: baixa um CSV com tudo (ou /exportar 10/2025 para um mês)\n"
     "/ajuda: mostra esta mensagem\n\n"
+    "Salário (CLT):\n"
+    "/salario: cadastra o salário (1ª vez) ou mostra holerite e próximos pagamentos\n"
+    "/editarsalario: reajuste, descontos, dia do pagamento, horas extras...\n"
+    "Horas extras: escreva, ex.: fiz 2h30 extras · fiz 4 horas extras no domingo\n"
+    "/horasextras: horas de cada mês, valor e quando caem\n"
+    "/decimo: 13º previsto (ou /decimo recebi 1125 para o valor real)\n"
+    "/ferias: períodos, simulação (/ferias marcar 15/07/2027 20 vender 10)\n"
+    "O salário, o 13º e as férias são lançados sozinhos no dia em que caem.\n\n"
     "Cartões de crédito:\n"
     "/novocartao: cadastra um cartão (fechamento, vencimento, limite...)\n"
     "/cartoes: todos os cartões e o melhor para usar hoje\n"

@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 from finbot.config import HealthSettings
 from finbot.parsing.text import normalize
-from finbot.services import credit_cards, debts, finance, transactions
+from finbot.services import credit_cards, debts, finance, salary, transactions
 from finbot.services.debts import Debt
 from finbot.services.finance import ExtraSimulation
 from finbot.services.transactions import Transaction
@@ -76,6 +76,7 @@ class Indicators:
     # nos gastos (o bot não viu essas compras), então entram no comprometimento.
     card_pre_bot_cents: int = 0
     card_used_cents: int = 0  # total usado dos limites (o que ainda vai ser cobrado)
+    salary_cents: int | None = None  # líquido do salário cadastrado (None = sem cadastro)
 
     @property
     def committed_cents(self) -> int:
@@ -107,7 +108,18 @@ def indicators(
     selected = [t for m in months for t in by_month[m]]
     n = len(months)
 
-    income = sum(t.amount_cents for t in selected if t.kind == "income") // n
+    # Renda base: com salário cadastrado, o líquido mensal dele (antes do consignado)
+    # + a média das OUTRAS entradas (o salário lançado pelo bot não conta duas vezes).
+    salary_net = salary.monthly_net_estimate(conn, today)
+    if salary_net is not None:
+        others = sum(
+            t.amount_cents
+            for t in selected
+            if t.kind == "income" and t.category not in salary.PAYROLL_CATEGORIES
+        )
+        income = salary_net + others // n
+    else:
+        income = sum(t.amount_cents for t in selected if t.kind == "income") // n
     fixed = (
         sum(
             t.amount_cents
@@ -137,6 +149,7 @@ def indicators(
         else None,
         leftover_cents=income - fixed - committed,
         card_pre_bot_cents=pre_bot,
+        salary_cents=salary_net,
         card_used_cents=sum(c.used_cents for c in cards),
     )
 

@@ -79,7 +79,10 @@ def format_payslip(s: Payslip) -> list[str]:
     ir = s.ir
     ir_line = f"   − IR {_brl(ir.tax_cents)}"
     if ir.reduction_cents:
-        ir_line += f" (pela tabela {_brl(ir.table_tax_cents)}; redução da Lei 15.270 −{_brl(ir.reduction_cents)})"
+        ir_line += (
+            f" (pela tabela {_brl(ir.table_tax_cents)}; "
+            f"redução da Lei 15.270 −{_brl(ir.reduction_cents)})"
+        )
     lines.append(ir_line)
     for name, value in s.deductions:
         lines.append(f"   − {name} {_brl(value)}")
@@ -370,7 +373,8 @@ def format_vacations(conn, today: date, extra=()) -> str:
     sold = payroll.vacation_pay(profile.gross_cents, 20, 10, profile.dependents, year)
     lines += [
         "",
-        f"Simulação (salário {_brl(profile.gross_cents)}; a média de horas extras entra quando marcar):",
+        f"Simulação (salário {_brl(profile.gross_cents)}; "
+        "a média de horas extras entra quando marcar):",
         f"• 30 dias: {_brl(full.net_cents)} líquidos (férias {_brl(full.vacation_cents)} + 1/3 "
         f"{_brl(full.third_cents)} − INSS {_brl(full.inss_cents)} − IR {_brl(full.irrf_cents)})",
         f"• 20 dias + vender 10: {_brl(sold.net_cents)} líquidos (abono {_brl(sold.bonus_cents)} "
@@ -436,7 +440,8 @@ async def vacation_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         employment = salary.get_employment(conn)
         first_ok = payroll.vacation_periods(employment.admission_date, start)[0].acquisition_end
         warn = (
-            f"\n⚠️ Antes de {first_ok + timedelta(days=1):%d/%m/%Y} você ainda não completou 12 meses."
+            f"\n⚠️ Antes de {first_ok + timedelta(days=1):%d/%m/%Y} "
+            "você ainda não completou 12 meses."
             if start <= first_ok
             else ""
         )
@@ -476,7 +481,8 @@ QUESTIONS = {
         True,
     ),
     "deductions": (
-        "Outros descontos fixos no holerite? Ex.: vale-transporte 6%, plano de saúde 150. Pular = nenhum",
+        "Outros descontos fixos no holerite? Ex.: vale-transporte 6%, plano de saúde 150. "
+        "Pular = nenhum",
         True,
     ),
 }
@@ -574,11 +580,14 @@ async def _advance(message: Message, context, value) -> int:
     months = payroll.thirteenth_months(today.year, draft["admission"])
     lines = [
         "Confira:",
-        f"Bruto {_brl(gross)} · {hours}h semanais (hora {_brl(payroll.cents(payroll.hourly_rate(gross, hours)))})",
-        f"Admissão {draft['admission']:%d/%m/%Y} · cai no {payday_text(draft.get('payday_rule') or '5du')}",
+        f"Bruto {_brl(gross)} · {hours}h semanais "
+        f"(hora {_brl(payroll.cents(payroll.hourly_rate(gross, hours)))})",
+        f"Admissão {draft['admission']:%d/%m/%Y} · "
+        f"cai no {payday_text(draft.get('payday_rule') or '5du')}",
         f"13º em {salary.format_schedule(draft.get('schedule') or DEFAULTS['schedule'])} · "
         f"{months}/12 em {today.year}",
-        f"Horas extras: {draft.get('overtime_pct') or 50}%, caem {draft.get('overtime_lag_months', 2)} mês(es) depois",
+        f"Horas extras: {draft.get('overtime_pct') or 50}%, "
+        f"caem {draft.get('overtime_lag_months', 2)} mês(es) depois",
         "",
         f"Líquido estimado: {_brl(gross)} − INSS {_brl(inss)} − IR {_brl(ir.tax_cents)} = "
         f"{_brl(gross - inss - ir.tax_cents)} (antes de outros descontos e consignado)",
@@ -682,12 +691,18 @@ EDIT_FIELDS = {
     "deductions": "Outros descontos",
 }
 EDIT_QUESTIONS = {
-    "raise": "Novo salário bruto e a partir de quando. Ex.: 5.000 01/01/2027 (sem data = a partir de hoje)",
+    "raise": (
+        "Novo salário bruto e a partir de quando. Ex.: 5.000 01/01/2027 "
+        "(sem data = a partir de hoje)"
+    ),
     "holiday_pct": "Adicional de domingo/feriado, em %? Ex.: 100",
     "advance": 'Vale: ex.: 40% dia 20 (ou "não" para tirar)',
     "closing_day": 'Dia de fechamento do ponto (ou "fim" para o último dia do mês)',
     "consigned": 'Nome da dívida descontada em folha (ou "nenhum")',
-    "deductions": 'Todos os descontos fixos (substitui os atuais). Ex.: vale-transporte 6%, plano 150 (ou "nenhum")',
+    "deductions": (
+        "Todos os descontos fixos (substitui os atuais). "
+        'Ex.: vale-transporte 6%, plano 150 (ou "nenhum")'
+    ),
 }
 
 
@@ -769,7 +784,10 @@ def apply_edit(conn, field: str, text: str, today: date, now: datetime) -> str:
         gross = pd.parse_money(parts[0])
         start = pd.parse_date(parts[1], date(today.year + 2, 12, 31)) if len(parts) > 1 else today
         salary.raise_salary(conn, gross, start, now)
-        return f"✅ Salário de {_brl(gross)} a partir de {start:%d/%m/%Y} (o anterior fica no histórico)."
+        return (
+            f"✅ Salário de {_brl(gross)} a partir de {start:%d/%m/%Y} "
+            "(o anterior fica no histórico)."
+        )
     if field == "holiday_pct":
         salary.update_settings(conn, holiday_pct=st.parse_int(text, 50, 300, "adicional"))
     elif field == "advance":

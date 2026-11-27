@@ -7,7 +7,7 @@ montamos os dados de entrada e o texto da resposta.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -17,7 +17,7 @@ from finbot.config import Settings
 from finbot.money import AmountError, format_brl, format_percent, parse_amount
 from finbot.parsing.payment import PaymentArgsError, parse_name_and_amount
 from finbot.services import credit_cards as cc
-from finbot.services import debts, finance
+from finbot.services import debts, finance, salary
 from finbot.services.debts import Debt
 from finbot.services.finance import ExtraSimulation, Projection, StrategyResult
 
@@ -168,15 +168,50 @@ def _month_label(key: str) -> str:
     return short_month(date(year, month, 1))
 
 
-def format_outflow(rows: list[tuple[str, int, int]]) -> list[str]:
-    if not any(inv for _, _, inv in rows):
+def monthly_income(
+    conn: sqlite3.Connection, months: list[str], today: date, extra=()
+) -> dict[str, int]:
+    """Entradas previstas do salário (salário, vale, 13º, férias) por mês, de hoje em
+    diante, líquidas ANTES do consignado (o consignado já está nas parcelas)."""
+    if not months:
+        return {}
+    first = max(date.fromisoformat(f"{months[0]}-01"), today)
+    year, month = (int(x) for x in months[-1].split("-"))
+    last = date(*finance.add_months(year, month, 1), 1) - timedelta(days=1)
+    totals: dict[str, int] = {}
+    for u in salary.payments_between(conn, first, last, extra):
+        key = f"{u.pay_date:%Y-%m}"
+        totals[key] = totals.get(key, 0) + u.net_cents
+    return totals
+
+
+def format_outflow(
+    rows: list[tuple[str, int, int]], income: dict[str, int] | None = None
+) -> list[str]:
+    lines = []
+    if any(inv for _, _, inv in rows):
+        lines.append("💳 Faturas dos cartões (sem juros: não disputam o dinheiro extra):")
+        lines.append(
+            "   " + " · ".join(f"{_month_label(m)} {format_brl(inv)}" for m, _, inv in rows)
+        )
+    if not lines and not income:
         return []
-    lines = ["💳 Faturas dos cartões (sem juros: não disputam o dinheiro extra):"]
-    lines.append("   " + " · ".join(f"{_month_label(m)} {format_brl(inv)}" for m, _, inv in rows))
     lines.append("💸 Saindo por mês (parcelas + faturas):")
     lines.append(
         "   " + " · ".join(f"{_month_label(m)} {format_brl(p + inv)}" for m, p, inv in rows)
     )
+    if income:
+        lines.append("💰 Entrando (salário, 13º, férias; já sem INSS/IR):")
+        lines.append(
+            "   "
+            + " · ".join(f"{_month_label(m)} {format_brl(income.get(m, 0))}" for m, _, _ in rows)
+        )
+        lines.append("🧮 Sobra (entrando − saindo, antes dos outros gastos):")
+        parts = []
+        for m, p, inv in rows:
+            left = income.get(m, 0) - p - inv
+            parts.append(f"{_month_label(m)} {format_brl(left)}" + (" 🚨" if left < 0 else ""))
+        lines.append("   " + " · ".join(parts))
     return lines
 
 
@@ -203,6 +238,7 @@ def format_strategies(
     extra_cents: int,
     today: date,
     outflow: list[tuple[str, int, int]] | None = None,
+    income: dict[str, int] | None = None,
 ) -> str:
     if not inputs:
         return "Nenhuma dívida com saldo para comparar. 🎉"
@@ -245,10 +281,11 @@ def format_strategies(
             )
         lines.append(text)
     if outflow:
-        card_lines = format_outflow(outflow)
+        card_lines = format_outflow(outflow, income)
         if card_lines:
             lines += [""] + card_lines
-            lines.append("Se parar de usar os cartões, veja como as faturas ajudam: /semcartao")
+            if any(inv for _, _, inv in outflow):
+                lines.append("Se parar de usar os cartões, veja como as faturas ajudam: /semcartao")
     if not extra_cents:
         lines.append("Para simular com dinheiro a mais por mês: /estrategia 200")
     return "\n".join(lines)
@@ -310,7 +347,10 @@ async def strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     active = debts.list_active(conn)
     inputs = strategy_inputs(active) + revolving_inputs(conn, today)
     outflow = monthly_outflow(active, conn, today)
-    await message.reply_text(format_strategies(inputs, extra, today, outflow))
+    income = monthly_income(
+        conn, [m for m, _, _ in outflow], today, _settings(context).extra_holidays
+    )
+    await message.reply_text(format_strategies(inputs, extra, today, outflow, income))
 
 
 def _parse_extra(args) -> int | None:

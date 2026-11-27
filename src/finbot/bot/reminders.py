@@ -14,6 +14,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes
 
 from finbot.bot import card_ops
+from finbot.bot import salary as salary_bot
 from finbot.config import Settings
 from finbot.money import format_brl
 from finbot.services import credit_cards as cc
@@ -59,6 +60,8 @@ async def send_pending(context: ContextTypes.DEFAULT_TYPE) -> int:
         reminders.mark_sent(conn, r.debt.id, r.due_date, datetime.now(UTC))
     # Cartões: rotativo das faturas vencidas e lembretes de fatura.
     sent = len(items) + await card_ops.run_daily(context)
+    # Salário: lança o que caiu (salário, vale, 13º, férias) e avisa do prazo das férias.
+    sent += await salary_bot.run_daily(context)
     if sent:
         logger.info("Avisos enviados: %d", sent)
     return sent

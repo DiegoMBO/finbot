@@ -37,7 +37,16 @@ def format_indicators(i: Indicators, cfg: HealthSettings) -> list[str]:
         months = ", ".join(_short(m) for m in i.months)
         base = f"Base: média de {months} ({len(i.months)} mês(es) completo(s))"
     lines = ["🩺 Saúde financeira", base, ""]
-    lines.append(f"Renda média: {format_brl(i.income_cents)}")
+    if i.salary_cents is not None:
+        others = i.income_cents - i.salary_cents
+        text = (
+            f"Renda base: {format_brl(i.income_cents)} "
+            f"(salário líquido {format_brl(i.salary_cents)}"
+        )
+        text += f" + outras entradas {format_brl(others)})" if others else ")"
+        lines.append(text)
+    else:
+        lines.append(f"Renda média: {format_brl(i.income_cents)} (cadastre o salário: /salario)")
     lines.append(
         f"Gastos fixos médios ({', '.join(cfg.fixed_categories)}): {format_brl(i.fixed_cents)}"
     )

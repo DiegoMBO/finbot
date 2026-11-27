@@ -22,6 +22,7 @@ ao seu chat.
 - [Ligar sozinho no Windows](#ligar-sozinho-no-windows-sem-janela)
 - [Hospedar num servidor](#hospedar-num-servidor-24-horas-grátis)
 - [Como usar](#como-usar)
+- [Salário (CLT)](#salário-clt)
 - [Cartões de crédito](#cartões-de-crédito)
 - [Dívidas](#dívidas)
 - [Seus dados](#seus-dados)
@@ -41,6 +42,9 @@ ao seu chat.
 | `/exportar` | Envia um CSV com tudo, pronto para o Excel / Google Planilhas |
 | `/desfazer` | Apaga o último registro |
 | `/ajuda` ou `/help` | Mostra as instruções |
+| `/salario` · `/editarsalario` | Salário CLT: holerite estimado e lançamento automático |
+| `fiz 10 horas extras` · `/horasextras` | Horas extras com adicional e DSR, e quando caem |
+| `/decimo` · `/ferias` | 13º e férias pelas regras da CLT |
 | `/novocartao` | Cadastra um cartão: fechamento, vencimento, limite, usado, faturas |
 | `gastei 80 no mercado no nubank` | Compra no cartão: entra na fatura certa e ocupa o limite |
 | `comprei tv 3000 em 10x no nubank` · `/parcelado` | Compra parcelada, uma parcela por fatura |
@@ -118,6 +122,7 @@ notepad .env
 | `SUGGEST_SHARE_PCT` | não | `50` | % do aumento que a sugestão simula mandar para a dívida |
 | `REMINDER_HOUR` | não | `9` | Hora (0 a 23, no seu fuso) em que os lembretes saem |
 | `REMINDER_DAYS_BEFORE` | não | `3` | Quantos dias antes do vencimento avisar |
+| `EXTRA_HOLIDAYS` | não | vazio | Feriados estaduais/municipais `DD/MM` separados por vírgula (DSR das horas extras e 5º dia útil) |
 
 Valor inválido (ex.: `HEALTH_OK_MAX` maior que `HEALTH_WARN_MAX`) faz o bot
 parar ao iniciar com uma mensagem dizendo qual variável corrigir.
@@ -282,6 +287,86 @@ mesmo que em UTC já seja o dia seguinte.
 O arquivo abre direto no Excel em português: colunas separadas por `;`,
 valores com vírgula (`35,00`), datas `dd/mm/aaaa` no seu fuso e acentos
 preservados. Colunas: `data;hora;tipo;valor;categoria;descricao`.
+
+## Salário (CLT)
+
+### Cadastrar (`/salario`)
+
+Na primeira vez, `/salario` pergunta: salário **bruto**, data de admissão, jornada
+semanal (40h, 44h...), adicional de hora extra (padrão 50%), dependentes no IR,
+dia do pagamento (5º dia útil ou dia fixo), vale quinzenal (opcional), as datas em
+que a empresa paga o 13º (ex.: `30/06, 30/11, 18/12`; a última é a 2ª parcela),
+fechamento do ponto, quantos meses depois as horas extras caem, consignado
+descontado em folha (o nome da dívida) e outros descontos (ex.:
+`vale-transporte 6%, plano de saúde 150`). Antes de salvar mostra o líquido
+estimado: confira com o seu holerite.
+
+Depois, `/salario` mostra o holerite estimado (bruto, INSS, IR, descontos,
+consignado e o que cai na conta) e os pagamentos dos próximos 60 dias.
+`/editarsalario` muda qualquer item; o **reajuste** pede o valor e a data
+(`5.000 01/01/2027`) e mantém o histórico.
+
+### Lançamento automático
+
+No dia em que cai, o bot lança sozinho e avisa (junto com os lembretes, às
+`REMINDER_HOUR`):
+
+- **salário** como entrada (categoria `salário`), já com as horas extras do mês;
+- o **consignado** em folha como pagamento da dívida (o saldo dela cai);
+- **vale**, **13º** (1ª e 2ª parcela) e **férias** nas datas certas.
+
+Não lança o passado (só a partir do cadastro) e não lança duas vezes. Se não caiu
+ou veio diferente: `/desfazer` (desfaz a entrada e o consignado juntos; o bot não
+relança). Na 1ª parcela do 13º, `/decimo recebi 1125` grava o valor real e a 2ª
+parcela se ajusta.
+
+### Horas extras
+
+Escreva: `fiz 10 horas extras`, `fiz 2h30 extras`, `fiz 4 horas extras no
+domingo` (adicional de domingo/feriado, padrão 100%), `fiz 3 horas extras ontem`,
+`fiz 10 horas extras em outubro`. `/desfazer` apaga o último registro.
+
+- Valor da hora = salário ÷ (jornada semanal × 5): 40h → ÷ 200; 44h → ÷ 220.
+- Hora extra = valor da hora × (1 + adicional).
+- **DSR** (reflexo no descanso): horas extras do mês ÷ dias úteis × (domingos +
+  feriados). Feriados nacionais são calculados sozinhos (inclusive a Sexta-feira
+  Santa); estaduais/municipais vão em `EXTRA_HOLIDAYS=25/01,09/07` no `.env`.
+- Caem no salário do mês: fechamento do ponto + atraso em meses (configurável).
+- `/horasextras` lista cada mês: horas, valor, DSR e quando cai.
+
+### 13º salário (`/decimo`)
+
+- 1/12 por mês com **15 dias ou mais** trabalhados (admissão em 06/07 → julho conta).
+- Nas datas da empresa: cada data antes da última paga parte da **1ª parcela**
+  (metade do proporcional até aquele mês, sem descontos); a última paga a **2ª**,
+  com INSS e IR calculados sobre o 13º inteiro (tributação exclusiva).
+- A média das horas extras do ano entra no acerto (2ª parcela).
+
+### Férias (`/ferias`)
+
+- Períodos: 12 meses de trabalho dão direito a 30 dias, que a empresa tem de dar
+  nos 12 meses seguintes (depois, paga em dobro). O bot avisa 60 e 30 dias antes
+  desse prazo se você ainda não tirou.
+- Valor: salário (+ média das horas extras dos últimos 12 meses) ÷ 30 × dias,
+  + 1/3. Vender até 10 dias (abono) não tem INSS nem IR.
+- `/ferias marcar 15/07/2027 30` ou `/ferias marcar 15/07/2027 20 vender 10`:
+  mostra quanto recebe, quando (2 dias antes) e **o salário menor do mês
+  seguinte** (os dias de férias já vieram adiantados). `/ferias apagar` desmarca.
+
+### Tabelas
+
+INSS e IR de 2026 ficam em `src/finbot/services/payroll_tables.py`, com a fonte.
+IR: usa o melhor entre deduções legais e desconto simplificado, e a redução da Lei
+15.270/2025 (IR zerado até R$ 5.000; redução decrescente até R$ 7.350). **Todo
+ano, atualize as tabelas** (copie o bloco do ano e troque os números). Os cálculos
+são estimativas: o holerite da empresa sempre prevalece.
+
+### Onde o salário aparece
+
+- `/saude`: a renda base passa a ser o salário líquido (antes do consignado) mais
+  a média das outras entradas.
+- `/estrategia`: além do que sai por mês, mostra o que **entra** (salário, 13º,
+  férias) e a **sobra** prevista de cada mês.
 
 ## Cartões de crédito
 
