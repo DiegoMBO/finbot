@@ -66,6 +66,7 @@ HELP_TEXT = (
     "/saldo nome valor: corrige o saldo pelo valor do app do banco\n"
     "/simular nome extra: quanto você economiza pagando um extra por mês\n"
     "/estrategia [extra]: compara avalanche e bola de neve\n"
+    "/semcartao [extra]: e se eu parar de usar os cartões?\n"
     "/saude: indicadores de saúde financeira e sugestões\n"
     "/grafico nome: imagem com a evolução do saldo e a projeção\n"
     "/lembretes: próximos vencimentos (os avisos chegam sozinhos 3 dias antes)\n"
@@ -91,7 +92,7 @@ def describe(t: Transaction) -> str:
 KNOWN_COMMANDS = (
     "start", "ajuda", "help", "hoje", "mes", "desfazer", "orcamento", "exportar",
     "novadivida", "editardivida", "dividas", "divida", "removerdivida", "pagar", "saldo",
-    "simular", "estrategia", "saude", "grafico", "lembretes", "cancelar",
+    "simular", "estrategia", "semcartao", "saude", "grafico", "lembretes", "cancelar",
     "novocartao", "editarcartao", "cartoes", "cartao", "fatura", "parcelado", "estorno",
 )  # fmt: skip
 

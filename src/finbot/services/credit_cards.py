@@ -309,6 +309,63 @@ def unallocated_cents(conn: sqlite3.Connection, card: Card) -> int:
     return max(card.used_cents - owed, 0)
 
 
+def _items_of_kind(conn: sqlite3.Connection, invoice_id: int, kind: str) -> int:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS s FROM invoice_items"
+        " WHERE invoice_id = ? AND kind = ?",
+        (invoice_id, kind),
+    ).fetchone()
+    return row["s"]
+
+
+def revolving_cents(conn: sqlite3.Connection, card: Card, today: date) -> int:
+    """Quanto deste cartão está no ROTATIVO (ou vai cair nele): é dívida com juros.
+
+    - fatura vencida e não paga (ainda não lançada no rotativo): o que falta;
+    - faturas abertas que receberam rotativo: a parte do rotativo ainda não paga.
+    """
+    total = 0
+    for inv in invoices(conn, card.id):
+        if inv.rolled_at or inv.remaining_cents == 0:
+            continue
+        if inv.due_date < today:
+            total += inv.remaining_cents
+        else:
+            total += min(_items_of_kind(conn, inv.id, "rotativo"), inv.remaining_cents)
+    return total
+
+
+def invoice_schedule(conn: sqlite3.Connection, card: Card, today: date) -> list[int]:
+    """O que falta pagar das faturas, mês a mês, a partir da fatura atual
+    (sem a parte do rotativo, que é contada à parte como dívida com juros)."""
+    by_month = {}
+    for inv in invoices(conn, card.id):
+        if inv.rolled_at or inv.due_date < today:
+            continue
+        rot = min(_items_of_kind(conn, inv.id, "rotativo"), inv.remaining_cents)
+        by_month[inv.reference_month] = inv.remaining_cents - rot
+    if not by_month:
+        return []
+    first = payable_cycle(card, today)
+    schedule, k = [], 0
+    last = max(by_month)
+    while True:
+        month = cm.shift(first, k, card.closing_day, card.due_day).reference_month
+        if month > last:
+            return schedule
+        schedule.append(by_month.get(month, 0))
+        k += 1
+
+
+def pre_bot_cents(conn: sqlite3.Connection, card: Card, today: date) -> int:
+    """Parcelas de compras feitas ANTES do bot na fatura atual. Elas não estão nos
+    gastos (o bot não viu essas compras), então contam no comprometimento da renda."""
+    inv = current_invoice(conn, card, today)
+    if inv is None:
+        return 0
+    return min(_items_of_kind(conn, inv.id, "anterior"), inv.remaining_cents)
+
+
 def purchases(conn: sqlite3.Connection, card_id: int, limit: int = 8) -> list[Purchase]:
     rows = conn.execute(
         "SELECT * FROM card_purchases WHERE card_id = ? ORDER BY id DESC LIMIT ?",

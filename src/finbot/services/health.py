@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 from finbot.config import HealthSettings
 from finbot.parsing.text import normalize
-from finbot.services import debts, finance, transactions
+from finbot.services import credit_cards, debts, finance, transactions
 from finbot.services.debts import Debt
 from finbot.services.finance import ExtraSimulation
 from finbot.services.transactions import Transaction
@@ -72,6 +72,18 @@ class Indicators:
     commitment_bp: int | None  # None quando não há renda registrada
     band: Band | None
     leftover_cents: int
+    # Cartões: parcelas de compras de ANTES do bot na fatura atual. Elas não estão
+    # nos gastos (o bot não viu essas compras), então entram no comprometimento.
+    card_pre_bot_cents: int = 0
+    card_used_cents: int = 0  # total usado dos limites (o que ainda vai ser cobrado)
+
+    @property
+    def committed_cents(self) -> int:
+        return self.installments_cents + self.card_pre_bot_cents
+
+    @property
+    def total_with_cards_cents(self) -> int:
+        return self.total_debt_cents + self.card_used_cents
 
 
 def _is_fixed(category: str, fixed: tuple[str, ...]) -> bool:
@@ -107,7 +119,10 @@ def indicators(
     active = debts.list_active(conn)
     paying = [d for d in active if counts_as_installment(d)]
     installments = sum(d.payment_cents for d in paying)
-    commitment = installments * 10_000 // income if income > 0 else None
+    cards = credit_cards.list_cards(conn)
+    pre_bot = sum(credit_cards.pre_bot_cents(conn, c, today) for c in cards)
+    committed = installments + pre_bot
+    commitment = committed * 10_000 // income if income > 0 else None
     return Indicators(
         months=months,
         partial=partial,
@@ -120,7 +135,9 @@ def indicators(
         band=classify(commitment, cfg.ok_max_pct, cfg.warn_max_pct)
         if commitment is not None
         else None,
-        leftover_cents=income - fixed - installments,
+        leftover_cents=income - fixed - committed,
+        card_pre_bot_cents=pre_bot,
+        card_used_cents=sum(c.used_cents for c in cards),
     )
 
 

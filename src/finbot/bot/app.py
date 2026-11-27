@@ -83,6 +83,7 @@ def build_application(settings: Settings) -> Application:
     app.add_handler(CommandHandler("cartao", card_views.card_command))
     app.add_handler(CommandHandler("simular", strategy.simulate_command))
     app.add_handler(CommandHandler("estrategia", strategy.strategy_command))
+    app.add_handler(CommandHandler("semcartao", strategy.no_card_command))
     app.add_handler(CommandHandler("saude", health.health_command))
     app.add_handler(CommandHandler("grafico", chart.chart_command))
     app.add_handler(CommandHandler("lembretes", reminders.reminders_command))

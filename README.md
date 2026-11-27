@@ -55,7 +55,8 @@ ao seu chat.
 | `/saldo nome valor` | Corrige o saldo pelo valor do app do banco |
 | `/removerdivida nome` | Apaga uma dívida (pede confirmação) |
 | `/simular nome extra` | Quanto tempo e juros um extra mensal economiza |
-| `/estrategia [extra]` | Avalanche × bola de neve |
+| `/estrategia [extra]` | Avalanche × bola de neve (com as faturas e o rotativo dos cartões) |
+| `/semcartao [extra]` | E se eu parar de usar os cartões? |
 | `/saude` | Comprometimento da renda, sobra e sugestões com seus números |
 | `/grafico nome` | Imagem com a evolução do saldo e a projeção |
 | `/lembretes` | Próximos vencimentos (os avisos chegam sozinhos) |
@@ -447,6 +448,17 @@ nova projeção. O menu volta até você tocar em **✅ Concluir**.
 - `/estrategia` (ou `/estrategia 300` com um extra): compara **avalanche** (maior
   juros primeiro) e **bola de neve** (menor saldo primeiro) com o mesmo orçamento
   mensal: ordem de quitação, data de cada uma, data final e total de juros.
+- **Cartões no `/estrategia`:** as parcelas dos cartões (sem juros) não disputam
+  o dinheiro extra (adiantá-las não economiza juros), mas aparecem como pagamento
+  obrigatório: faturas dos próximos meses e o total que sai por mês (parcelas +
+  faturas). O que estiver no **rotativo** (fatura vencida sem pagar, ou o rotativo
+  lançado na fatura seguinte) entra como dívida com a taxa do cartão e, com
+  16–18% a.m., fica em 1º lugar na avalanche.
+- `/semcartao` (ou `/semcartao 200`): cenário "e se eu parar de usar os cartões?".
+  Supõe nenhuma compra nova e que você continua separando o que sai hoje por mês
+  (parcelas + faturas); conforme as faturas diminuem, o dinheiro liberado vai
+  para a dívida de juros mais altos. Mostra a ordem de quitação, a data final e
+  os juros, comparados com o `/estrategia`.
 - `/grafico nome`: imagem com o histórico do saldo (linha cheia) e a projeção
   (tracejada; vermelha se a dívida está crescendo), até 10 anos à frente.
 
@@ -457,8 +469,9 @@ nova projeção. O menu volta até você tocar em **✅ Concluir**.
 | Base | média dos 3 últimos meses **completos** com registros (sem nenhum: o mês atual até hoje, avisando que é parcial) |
 | Renda | média das entradas |
 | Gastos fixos | média das categorias de `FIXED_CATEGORIES` |
-| Parcelas | soma do pagamento mensal das dívidas ativas com saldo (cartões ficam de fora: as compras já estão nos gastos) |
+| Parcelas | soma do pagamento mensal das dívidas ativas com saldo, **mais** as parcelas de compras feitas no cartão **antes do bot** que estão na fatura atual (essas não estão nos gastos). As compras registradas no bot já estão nos gastos e não contam de novo |
 | Cartões | linha à parte: usado de todos os limites, faturas atuais a pagar e o que estiver vencido |
+| Total em dívidas | dívidas + usado dos cartões |
 | Comprometimento | parcelas ÷ renda → 🟢 saudável / 🟡 atenção / 🔴 alerta, pelas faixas do `.env` |
 | Sobra | renda − gastos fixos − parcelas |
 | Total em dívidas | soma dos saldos |

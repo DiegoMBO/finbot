@@ -208,6 +208,14 @@ class DebtInput:
     balance_cents: int
     rate_ppm: int
     payment_cents: int  # pagamento mínimo/parcela atual (0 se não houver)
+    # Pagamento obrigatório que MUDA a cada mês (faturas de cartão): mês 1, 2, 3...
+    # Quando informado, substitui payment_cents; depois do último mês, é 0.
+    schedule: tuple[int, ...] = ()
+
+    def minimum(self, month: int) -> int:
+        if self.schedule:
+            return self.schedule[month - 1] if month <= len(self.schedule) else 0
+        return self.payment_cents
 
 
 @dataclass(frozen=True)
@@ -248,7 +256,8 @@ def run_strategy(
     """
     by_name = {d.name: d for d in debts}
     balances = {d.name: d.balance_cents for d in debts if d.balance_cents > 0}
-    budget = sum(d.payment_cents for d in debts if d.balance_cents > 0) + extra_cents
+    # Orçamento fixo = o que sai no 1º mês (parcelas + faturas do mês) + extra.
+    budget = sum(d.minimum(1) for d in debts if d.balance_cents > 0) + extra_cents
     payoff_month: dict[str, int] = {}
     # Ordem REAL em que as dívidas zeram (dentro do mês também): quem a estratégia
     # quitou primeiro aparece primeiro, mesmo que outra termine no mesmo mês.
@@ -271,7 +280,7 @@ def run_strategy(
 
         available = budget
         for name in balances:
-            paid = min(by_name[name].payment_cents, balances[name])
+            paid = min(by_name[name].minimum(month), balances[name], available)
             pay(name, paid)
             available -= paid
 

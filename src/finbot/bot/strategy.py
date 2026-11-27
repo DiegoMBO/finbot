@@ -16,6 +16,7 @@ from finbot.bot.debts import card_hint, short_month
 from finbot.config import Settings
 from finbot.money import AmountError, format_brl, format_percent, parse_amount
 from finbot.parsing.payment import PaymentArgsError, parse_name_and_amount
+from finbot.services import credit_cards as cc
 from finbot.services import debts, finance
 from finbot.services.debts import Debt
 from finbot.services.finance import ExtraSimulation, Projection, StrategyResult
@@ -119,6 +120,66 @@ def strategy_inputs(items: list[Debt]) -> list[finance.DebtInput]:
     ]
 
 
+def revolving_inputs(conn: sqlite3.Connection, today: date) -> list[finance.DebtInput]:
+    """O que está no rotativo dos cartões é dívida com juros (e dos mais caros)."""
+    found = []
+    for card in cc.list_cards(conn):
+        amount = cc.revolving_cents(conn, card, today)
+        if amount > 0:
+            found.append(finance.DebtInput(f"{card.name} (rotativo)", amount, card.rate_ppm, 0))
+    return found
+
+
+def card_inputs(conn: sqlite3.Connection, today: date) -> list[finance.DebtInput]:
+    """Cartões como pagamentos obrigatórios SEM juros, com o calendário das faturas.
+    O "sem mês definido" fica no saldo, sem calendário: é pago com o que sobrar."""
+    found = []
+    for card in cc.list_cards(conn):
+        balance = card.used_cents - cc.revolving_cents(conn, card, today)
+        if balance > 0:
+            schedule = tuple(cc.invoice_schedule(conn, card, today))
+            found.append(finance.DebtInput(card.name, balance, 0, 0, schedule=schedule))
+    return found
+
+
+def monthly_outflow(
+    debts_list: list[Debt], conn: sqlite3.Connection, today: date, n: int = 4
+) -> list[tuple[str, int, int]]:
+    """Caixa real dos próximos meses: [(AAAA-MM, parcelas das dívidas, faturas)]."""
+    installments: dict[str, int] = {}
+    for d in debts_list:
+        projection = finance.project(d.balance_cents, d.rate_ppm, d.payment_cents)
+        for m in projection.schedule[: n + 1]:
+            key = f"{finance.payoff_date(today, m.number, d.due_day):%Y-%m}"
+            installments[key] = installments.get(key, 0) + m.payment_cents
+    invoices: dict[str, int] = {}
+    for card in cc.list_cards(conn):
+        for inv in cc.invoices(conn, card.id):
+            if inv.due_date >= today and not inv.rolled_at and inv.remaining_cents:
+                invoices[inv.reference_month] = (
+                    invoices.get(inv.reference_month, 0) + inv.remaining_cents
+                )
+    months = sorted(set(installments) | set(invoices))[:n]
+    return [(m, installments.get(m, 0), invoices.get(m, 0)) for m in months]
+
+
+def _month_label(key: str) -> str:
+    year, month = (int(x) for x in key.split("-"))
+    return short_month(date(year, month, 1))
+
+
+def format_outflow(rows: list[tuple[str, int, int]]) -> list[str]:
+    if not any(inv for _, _, inv in rows):
+        return []
+    lines = ["💳 Faturas dos cartões (sem juros: não disputam o dinheiro extra):"]
+    lines.append("   " + " · ".join(f"{_month_label(m)} {format_brl(inv)}" for m, _, inv in rows))
+    lines.append("💸 Saindo por mês (parcelas + faturas):")
+    lines.append(
+        "   " + " · ".join(f"{_month_label(m)} {format_brl(p + inv)}" for m, p, inv in rows)
+    )
+    return lines
+
+
 def _format_result(r: StrategyResult, rates: dict[str, int], today: date) -> list[str]:
     lines = [STRATEGY_TITLES[r.strategy]]
     if not r.feasible:
@@ -137,7 +198,12 @@ def _format_result(r: StrategyResult, rates: dict[str, int], today: date) -> lis
     return lines
 
 
-def format_strategies(inputs: list[finance.DebtInput], extra_cents: int, today: date) -> str:
+def format_strategies(
+    inputs: list[finance.DebtInput],
+    extra_cents: int,
+    today: date,
+    outflow: list[tuple[str, int, int]] | None = None,
+) -> str:
     if not inputs:
         return "Nenhuma dívida com saldo para comparar. 🎉"
     avalanche, snowball = finance.compare_strategies(inputs, extra_cents)
@@ -178,8 +244,54 @@ def format_strategies(inputs: list[finance.DebtInput], extra_cents: int, today: 
                 "o que ajuda a manter a motivação."
             )
         lines.append(text)
+    if outflow:
+        card_lines = format_outflow(outflow)
+        if card_lines:
+            lines += [""] + card_lines
+            lines.append("Se parar de usar os cartões, veja como as faturas ajudam: /semcartao")
     if not extra_cents:
         lines.append("Para simular com dinheiro a mais por mês: /estrategia 200")
+    return "\n".join(lines)
+
+
+def format_no_card_scenario(
+    debt_inputs: list[finance.DebtInput],
+    cards: list[finance.DebtInput],
+    extra_cents: int,
+    today: date,
+    baseline: StrategyResult | None,
+) -> str:
+    """/semcartao: avalanche contando as faturas como pagamentos que vão acabando."""
+    if not cards:
+        return "Nenhum cartão com valor usado: o resultado é o mesmo do /estrategia."
+    r = finance.run_strategy(debt_inputs + cards, "avalanche", extra_cents)
+    installments = sum(d.minimum(1) for d in debt_inputs)
+    invoices = sum(c.minimum(1) for c in cards)
+    unallocated = sum(c.balance_cents - sum(c.schedule) for c in cards)
+    rates = {d.name: d.rate_ppm for d in debt_inputs + cards}
+    lines = [
+        "🧮 Se você PARAR de usar os cartões",
+        f"Suposição: nenhuma compra nova nos cartões, e você continua separando "
+        f"{format_brl(r.monthly_budget_cents)} por mês (o que sai agora: parcelas "
+        f"{format_brl(installments)} + faturas {format_brl(invoices)}"
+        + (f" + extra {format_brl(extra_cents)})." if extra_cents else ")."),
+        "Quando as faturas diminuem e as parcelas acabam, o dinheiro liberado vai para "
+        "a dívida de juros mais altos (avalanche).",
+        "",
+    ]
+    lines += _format_result(r, rates, today)[1:]  # sem o título da avalanche
+    if unallocated > 0:
+        lines.append(
+            f'(O "sem mês definido" dos cartões, {format_brl(unallocated)}, entra como pago '
+            "com o que sobrar; informe cada fatura com /fatura para a conta ficar exata.)"
+        )
+    if baseline is not None and baseline.feasible and r.feasible:
+        lines.append(
+            "\nSó com as dívidas (/estrategia): juros "
+            f"{format_brl(baseline.total_interest_cents)}. "
+            f"Aqui: {format_brl(r.total_interest_cents)}."
+        )
+    lines.append("⚠️ Vale só se as compras novas no cartão pararem de verdade.")
     return "\n".join(lines)
 
 
@@ -193,6 +305,33 @@ async def strategy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except AmountError:
             await message.reply_text("Não entendi o valor extra. Ex.: /estrategia 200")
             return
-    inputs = strategy_inputs(debts.list_active(_db(context)))
+    conn = _db(context)
     today = datetime.now(_settings(context).timezone).date()
-    await message.reply_text(format_strategies(inputs, extra, today))
+    active = debts.list_active(conn)
+    inputs = strategy_inputs(active) + revolving_inputs(conn, today)
+    outflow = monthly_outflow(active, conn, today)
+    await message.reply_text(format_strategies(inputs, extra, today, outflow))
+
+
+def _parse_extra(args) -> int | None:
+    if not args:
+        return 0
+    try:
+        return parse_amount(" ".join(args))
+    except AmountError:
+        return None
+
+
+async def no_card_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/semcartao [valor_extra]: e se eu parar de usar os cartões?"""
+    message = update.effective_message
+    extra = _parse_extra(context.args)
+    if extra is None:
+        await message.reply_text("Não entendi o valor extra. Ex.: /semcartao 200")
+        return
+    conn = _db(context)
+    today = datetime.now(_settings(context).timezone).date()
+    debt_inputs = strategy_inputs(debts.list_active(conn)) + revolving_inputs(conn, today)
+    baseline = finance.run_strategy(debt_inputs, "avalanche", extra) if debt_inputs else None
+    text = format_no_card_scenario(debt_inputs, card_inputs(conn, today), extra, today, baseline)
+    await message.reply_text(text)

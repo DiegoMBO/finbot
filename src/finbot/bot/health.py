@@ -43,6 +43,11 @@ def format_indicators(i: Indicators, cfg: HealthSettings) -> list[str]:
     )
     debts_text = ", ".join(i.installment_debts) if i.installment_debts else "nenhuma"
     lines.append(f"Parcelas de dívidas: {format_brl(i.installments_cents)} ({debts_text})")
+    if i.card_pre_bot_cents:
+        lines.append(
+            f"Faturas de compras feitas antes do bot: {format_brl(i.card_pre_bot_cents)} "
+            "(não estão nos gastos, então entram aqui)"
+        )
     if i.commitment_bp is None:
         lines.append(
             "Comprometimento da renda: sem entradas registradas no período. "
@@ -63,10 +68,17 @@ def format_indicators(i: Indicators, cfg: HealthSettings) -> list[str]:
         lines.append(f"Sobra depois dos fixos e das parcelas: {format_brl(i.leftover_cents)}")
         if i.leftover_cents < 0:
             lines.append("🚨 Os fixos e as parcelas passam da renda média.")
-    lines.append(f"Total em dívidas: {format_brl(i.total_debt_cents)}")
-    lines.append(
-        "(Cartão de crédito não entra nas parcelas: a fatura é consumo e já está nos gastos.)"
-    )
+    if i.card_used_cents:
+        lines.append(
+            f"Total em dívidas: {format_brl(i.total_debt_cents)} + cartões "
+            f"{format_brl(i.card_used_cents)} = {format_brl(i.total_with_cards_cents)}"
+        )
+        lines.append(
+            "(Compras registradas no cartão já estão nos gastos; só as de antes do bot "
+            "entram no comprometimento.)"
+        )
+    else:
+        lines.append(f"Total em dívidas: {format_brl(i.total_debt_cents)}")
     return lines
 
 

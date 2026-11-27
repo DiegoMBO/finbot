@@ -207,6 +207,22 @@ def test_ordem_de_quitacao_no_mesmo_mes_segue_a_estrategia():
     assert r.total_interest_cents == 1_000
 
 
+def test_calendario_de_faturas_libera_dinheiro_feito_a_mao():
+    # Cartão C: 300 sem juros, faturas 200 e 100. Dívida D: 1.000 a 10%, sem parcela.
+    # Orçamento = o que sai no mês 1 = 200.
+    # M1: D 1.000+100=1.100; C paga 200 -> 100; sobra 0
+    # M2: D 1.100+110=1.210; C paga 100 -> 0 (quitado); sobra 100 -> D 1.110
+    # M3: D 1.110+111=1.221; sobra 200 -> 1.021
+    # M4..M11: juros 102,10; 92,31; 81,54; 69,70; 56,67; 42,33; 26,57; 9,22 -> D zera no mês 11
+    # Juros: 100+110+111+102,10+92,31+81,54+69,70+56,67+42,33+26,57+9,22 = 801,44
+    card = f.DebtInput("C", 30_000, 0, 0, schedule=(20_000, 10_000))
+    debt = f.DebtInput("D", 100_000, 100_000, 0)
+    r = f.run_strategy([debt, card], "avalanche")
+    assert r.monthly_budget_cents == 20_000
+    assert r.payoff_month == {"C": 2, "D": 11}
+    assert r.total_interest_cents == 80_144
+
+
 def test_estrategia_inviavel():
     # Juros de 100/mês e orçamento de 50: nunca quita
     r = f.run_strategy([f.DebtInput("Z", 100_000, 100_000, 5_000)], "avalanche", max_months=36)
