@@ -121,19 +121,30 @@ def migrate(
     return backup_path
 
 
-def connect(path: Path | str) -> sqlite3.Connection:
-    """Abre (ou cria) o banco em `path` e aplica as migrações pendentes."""
+def connect(path: Path | str, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    """Abre (ou cria) o banco em `path` e aplica as migrações pendentes.
+
+    `check_same_thread=False` é para o app web: lá cada requisição abre a sua
+    conexão, mas o FastAPI pode usá-la em outra thread do mesmo pedido.
+    """
     is_file = str(path) != MEMORY
     if is_file:
         # Cria a pasta "data/" na primeira execução.
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(path)
+    # timeout: se o outro programa (bot ou app) estiver gravando, espera até 10 s
+    # em vez de falhar na hora com "database is locked".
+    conn = sqlite3.connect(path, timeout=10, check_same_thread=check_same_thread)
     # Row permite ler colunas pelo nome: row["amount_cents"] em vez de row[2].
     conn.row_factory = sqlite3.Row
     # O SQLite vem com as chaves estrangeiras DESLIGADAS por padrão. Ligadas, ele
     # recusa, por exemplo, um pagamento que aponte para uma dívida inexistente.
     conn.execute("PRAGMA foreign_keys = ON")
+    if is_file:
+        # WAL ("write-ahead log"): o bot e o app web usam o MESMO arquivo ao mesmo
+        # tempo; quem lê não bloqueia quem grava. A configuração fica salva no
+        # arquivo (cria finbot.db-wal e finbot.db-shm ao lado; não apague).
+        conn.execute("PRAGMA journal_mode = WAL")
 
     try:
         migrate(conn, load_migrations(), Path(path) if is_file else None)

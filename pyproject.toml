@@ -17,6 +17,12 @@ dependencies = [
     "tzdata>=2024.1",
     # /grafico: gera a imagem da evolução do saldo (sem janela: backend "Agg").
     "matplotlib>=3.8",
+    # App web (python -m finbot.web): servidor, telas em HTML e login.
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.29,<1",
+    "jinja2>=3.1,<4",
+    "itsdangerous>=2.1,<3",  # cookie de sessão assinado (login)
+    "python-multipart>=0.0.9,<1",  # formulários (login, saldo, gastos)
 ]
 
 [project.optional-dependencies]
@@ -31,7 +37,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-finbot = ["db/migrations/*.sql"]
+finbot = ["db/migrations/*.sql", "web/templates/*.html", "web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,3 +49,7 @@ target-version = "py311"
 [tool.ruff.lint]
 # E/F: erros básicos | I: ordem dos imports | B: bugs comuns | UP: sintaxe moderna
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+# No FastAPI, Depends()/Form() como valor padrão é o jeito normal de declarar.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form"]

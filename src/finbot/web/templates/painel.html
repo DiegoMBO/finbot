@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Painel · finbot{% endblock %}
+
+{% macro balance_form(label) %}
+<form class="inline" method="post" action="/saldo">
+  <input type="text" name="valor" inputmode="decimal" placeholder="Ex.: 350 ou -120,50" aria-label="Saldo da conta" required>
+  <button class="primary" type="submit">{{ label }}</button>
+</form>
+<p class="hint">O saldo disponível da conta onde o salário cai (sem o limite do cheque especial). É o mesmo que <code>/extrato inicial</code> no bot.</p>
+{% endmacro %}
+
+{% block content %}
+<h1>Painel</h1>
+
+{% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
+
+{% if not ready %}
+<div class="card">
+  <h2>Quanto você tem na conta agora?</h2>
+  <p>Com esse ponto de partida, o painel calcula o saldo de cada dia: salário, parcelas, faturas e gastos.</p>
+  {{ balance_form("Começar") }}
+</div>
+{% else %}
+
+<section class="tiles" aria-label="Resumo">
+  {% for t in tiles %}
+  <div class="tile {{ t.tone }}">
+    <div class="label">{{ t.label }}</div>
+    <div class="value">{{ t.value }}</div>
+    {% if t.note %}<div class="note">{{ t.note }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section class="card" aria-labelledby="chart-title">
+  <h2 id="chart-title">Saldo dia a dia</h2>
+  <div id="chart" role="img" aria-label="Gráfico do saldo previsto para cada dia"></div>
+  {% if negative %}
+  <p class="chart-note bad">
+    🚨 Fica negativo
+    {% for a, b in negative %}{% if not loop.first %}{{ ' e ' if loop.last else ', ' }}{% endif %}{% if a == b %}em {{ a.strftime('%d/%m') }}{% else %}de {{ a.strftime('%d/%m') }} a {{ b.strftime('%d/%m') }}{% endif %}{% endfor %}.
+    Sem dinheiro nesses dias, uma conta atrasa ou uma fatura vai para o rotativo.
+  </p>
+  {% else %}
+  <p class="chart-note">✅ Não fica negativo nos próximos 90 dias (antes dos gastos do dia a dia que ainda não foram registrados).</p>
+  {% endif %}
+  <details>
+    <summary>Ver em tabela</summary>
+    <table id="chart-table"><thead><tr><th>Dia</th><th>O que acontece</th><th class="num">Saldo</th></tr></thead><tbody></tbody></table>
+  </details>
+</section>
+
+{% if undated_cents %}
+<div class="alert warning">
+  ⚠️ <strong>Cartões: {{ brl(undated_cents) }}</strong> de parcelas ainda sem mês definido
+  ({% for name, v in undated_cards %}{{ name }} {{ brl(v) }}{{ ' · ' if not loop.last }}{% endfor %}).
+  Elas vão cair nas próximas faturas, que podem ser maiores do que o gráfico mostra.
+</div>
+{% endif %}
+
+<div class="cols">
+  <section class="card">
+    <h2>Próximas saídas</h2>
+    {% if upcoming %}
+    <ul class="list">
+      {% for u in upcoming %}
+      <li>
+        <span class="when">{{ u.day.strftime('%d/%m') }}</span>
+        <span class="what">{{ u.label }}{% if u.status == '⚠️' %} <small>venceu sem pagamento registrado</small>{% elif u.note %} <small>{{ u.note }}</small>{% endif %}</span>
+        <span class="amount">{{ brl(-u.cents) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nada previsto.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Próximas entradas</h2>
+    {% if incomes %}
+    <ul class="list">
+      {% for u in incomes %}
+      <li>
+        <span class="when">{{ u.day.strftime('%d/%m') }}</span>
+        <span class="what">{{ u.label }}</span>
+        <span class="amount in">+{{ brl(u.cents) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nenhuma entrada prevista. Cadastre o salário no bot: /salario</p>{% endif %}
+    {% for g in growing %}
+    <p class="hint">📈 {{ g.name }}: {{ brl(g.balance_cents) }} + {{ brl(g.interest_cents) }} de juros este mês (a dívida cresce; não sai da conta).</p>
+    {% endfor %}
+  </section>
+</div>
+
+<section class="card" style="margin-top:14px">
+  <h2>Atualizar o saldo da conta</h2>
+  <p class="hint" style="margin-top:0">Informado em {{ anchor.informed_at.astimezone(today_tz).strftime('%d/%m às %H:%M') if today_tz else anchor.informed_at.strftime('%d/%m') }}: {{ brl(anchor.amount_cents) }}. Se não bater com o app do banco, informe de novo.</p>
+  {{ balance_form("Atualizar") }}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if ready %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="/static/painel.js"></script>
+{% endif %}
+{% endblock %}

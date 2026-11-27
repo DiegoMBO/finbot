@@ -20,6 +20,7 @@ ao seu chat.
 - [Configuração](#configuração)
 - [Executar](#executar)
 - [Ligar sozinho no Windows](#ligar-sozinho-no-windows-sem-janela)
+- [App web (telas e gráficos)](#app-web-telas-e-gráficos)
 - [Hospedar num servidor](#hospedar-num-servidor-24-horas-grátis)
 - [Como usar](#como-usar)
 - [Salário (CLT)](#salário-clt)
@@ -182,6 +183,67 @@ Atenção: **pare a tarefa antes de rodar o bot no terminal** (duas cópias dão
 `Conflict`), e depois de atualizar o código use `Stop-ScheduledTask finbot` e
 `Start-ScheduledTask finbot`. Com o PC desligado ou em suspensão o bot não
 responde; lembretes e rotativo atrasados saem quando ele voltar.
+
+## App web (telas e gráficos)
+
+As mesmas contas do bot, em telas com gráficos, no PC e no celular. O app e o
+bot usam o **mesmo banco** (`data\finbot.db`, em modo WAL, que deixa os dois
+lerem e gravarem ao mesmo tempo): o que você registra num aparece no outro.
+
+**Telas:** Painel (pronto); Extrato, Gastos, Dívidas, Cartões e Salário (próximas
+etapas). O Painel mostra o que tem na conta hoje, quanto falta ou sobra até o
+próximo dinheiro, o ponto mais baixo e o **gráfico do saldo dia a dia** dos
+próximos 90 dias (toque num dia para ver o que acontece nele; os dias negativos
+ficam em vermelho), além das próximas saídas e entradas.
+
+### 1. Criar a senha
+
+```powershell
+.venv\Scripts\python -m finbot.web senha
+```
+
+Grava no `.env` só o **hash** da senha (`WEB_PASSWORD_HASH`), nunca a senha. Depois
+de 5 senhas erradas o login fica bloqueado por 5 minutos.
+
+### 2. Rodar
+
+```powershell
+.venv\Scripts\python -m finbot.web      # http://127.0.0.1:8000
+```
+
+O servidor escuta **só no próprio PC** (127.0.0.1); ninguém da rede entra direto.
+Log em `data\finbot-web.log`. Para ligar sozinho, a tarefa `finbot-web` do
+Agendador (igual à do bot, com `-m finbot.web` e 45 s de espera):
+
+```powershell
+$proj = "C:\Users\SEU_USUARIO\projetos\finbot"
+$user = "$env:USERDOMAIN\$env:USERNAME"
+$action = New-ScheduledTaskAction -Execute "$proj\.venv\Scripts\pythonw.exe" -Argument "-m finbot.web" -WorkingDirectory $proj
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user; $trigger.Delay = "PT45S"
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -MultipleInstances IgnoreNew -StartWhenAvailable
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName "finbot-web" -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+São duas tarefas separadas de propósito: se uma cair, a outra continua.
+
+### 3. Abrir no celular, de qualquer lugar (Tailscale)
+
+O [Tailscale](https://tailscale.com/download) cria uma rede privada entre os
+SEUS aparelhos (grátis para uso pessoal). O app não fica exposto na internet.
+
+1. Instale o Tailscale no PC e no celular e entre com a **mesma conta**.
+2. No PC (PowerShell): `tailscale serve --bg 8000`. Isso publica o app só para os
+   seus aparelhos, com **HTTPS**, num endereço como
+   `https://nome-do-pc.algum-nome.ts.net` (o comando mostra o endereço).
+3. No celular, abra esse endereço. Para virar "app": menu do navegador →
+   **Adicionar à tela inicial**.
+
+O PC precisa estar ligado (como para o bot). O cookie de login só trafega por
+HTTPS; para testar no PC por `http://127.0.0.1:8000` use um navegador atual
+(Chrome/Edge aceitam) ou ponha `WEB_HTTPS_ONLY=0` no `.env`.
 
 ## Hospedar num servidor (24 horas, grátis)
 

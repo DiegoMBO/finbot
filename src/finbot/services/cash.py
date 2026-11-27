@@ -444,3 +444,48 @@ def outlook(
     ]  # fmt: skip
     free = month_stmt.end_cents - sum(i.amount_cents for i in committed)
     return Outlook(next_income, committed, free, low_day, low_cents, negative, until)
+
+
+# --- saldo dia a dia (gráfico do app) --------------------------------------------
+
+
+@dataclass(frozen=True)
+class DayPoint:
+    day: date
+    balance_cents: int  # saldo no FIM do dia
+    items: list[Item]  # o que acontece neste dia (entradas primeiro)
+
+
+def daily_balance(
+    conn: sqlite3.Connection, today: date, tz: ZoneInfo, days: int = 60, extra=()
+) -> list[DayPoint] | None:
+    """Saldo previsto de hoje até `days` dias à frente, um ponto por dia.
+
+    Usa os mesmos extratos do /extrato (mesmas regras). Hoje já inclui tudo o que
+    foi registrado (✅) e o que venceu sem registro (⚠️, conta como a pagar hoje).
+    None = sem saldo inicial (/extrato inicial).
+    """
+    until = today + timedelta(days=days)
+    if months_between((today.year, today.month), (until.year, until.month)) > MAX_MONTHS_AHEAD:
+        until = _due(*finance.add_months(today.year, today.month, MAX_MONTHS_AHEAD), None)
+    chain = statements(conn, until.year, until.month, today, tz, extra)
+    if chain[0].start_cents is None:
+        return None
+    balance = chain[0].start_cents
+    by_day: dict[date, list[Item]] = {}
+    for s in chain:
+        for i in s.items:
+            if i.status == DONE or i.day is None:
+                balance += _signed(i)  # já aconteceu: está no saldo de hoje
+                continue
+            when = today if i.status == LATE else i.day
+            if when <= until:
+                by_day.setdefault(when, []).append(i)
+    points = []
+    day = today
+    while day <= until:
+        items = sorted(by_day.get(day, []), key=lambda i: i.group != INCOME)
+        balance += sum(_signed(i) for i in items)
+        points.append(DayPoint(day, balance, items))
+        day += timedelta(days=1)
+    return points
